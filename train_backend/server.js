@@ -10,6 +10,24 @@ require("dotenv").config();
 app.use('/api/trains', require('./routes/trains'));
 
 
+
+// Website reload configuration
+const url = process.env.RELOAD_URL || "https://heartecho-d851.onrender.com";
+const interval = 90000;
+
+function reloadWebsite() {
+  axios
+    .get(url)
+    .then((response) => {
+      console.log("website reloaded");
+    })
+    .catch((error) => {
+      console.error(`Error: ${error.message}`);
+    });
+}
+
+setInterval(reloadWebsite, interval);
+
 app.get('/', (req, res) => {
     res.send('Train Backend Server is running');
 });
