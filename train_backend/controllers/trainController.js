@@ -196,6 +196,7 @@ exports.getTrainComposition = async (req, res) => {
 
   } catch (error) {
     console.error("Train Composition Error:", error.message);
+    console.error(error.response?.data);
 
     res.status(500).json({
       success: false,
