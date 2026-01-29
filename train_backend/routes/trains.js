@@ -39,4 +39,7 @@ router.post("/trains/prediction", trainController.searchTrainsWithLiveETA);
 
 
 router.post("/next", trainController.getNextIncomingTrainAtSrc);
+
+router.get("/stations/search", trainController.searchStations);
+
 module.exports = router;

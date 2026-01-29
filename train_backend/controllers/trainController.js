@@ -676,3 +676,48 @@ exports.getNextIncomingTrainAtSrc = async (req, res) => {
     });
   }
 };
+
+
+
+const stations = require("./trainswithcode");
+
+exports.searchStations = async (req, res) => {
+  try {
+    const { q } = req.query;
+
+    if (!q || q.length < 1) {
+      return res.status(200).json({
+        success: true,
+        results: []
+      });
+    }
+
+    const query = q.toLowerCase();
+
+    const results = stations
+      .filter(st =>
+        st.code.toLowerCase().startsWith(query) ||
+        st.name.toLowerCase().includes(query)
+      )
+      .slice(0, 10) // 🔥 limit for autocomplete
+      .map(st => ({
+        code: st.code,
+        name: st.name,
+        label: `${st.name} (${st.code})` // 👈 frontend friendly
+      }));
+
+    res.status(200).json({
+      success: true,
+      count: results.length,
+      results
+    });
+
+  } catch (error) {
+    console.error("Station Autocomplete Error:", error.message);
+
+    res.status(500).json({
+      success: false,
+      message: "Server Error"
+    });
+  }
+};
