@@ -27,4 +27,16 @@ router.post('/train-composition-by-coach', trainController.getCoachComposition);
 
 router.get("/schedule", trainController.getTrainSchedule);
 
+router.post("/station-info-upcoming", trainController.NearByRailwaySatationTrinsData);
+
+
+router.post("/trains/prediction", trainController.searchTrainsWithLiveETA);
+// {
+//   "src": "NGP",
+//   "dst": "NDLS",
+//   "doj": "20260201"
+// }
+
+
+router.post("/next", trainController.getNextIncomingTrainAtSrc);
 module.exports = router;
