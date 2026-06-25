@@ -305,8 +305,8 @@ export const userProfile = async (req,res)=>{
           city:user.city,
           location:user.location,
           notification:user.notifications,
-          savedRoutes:user.savedRoutes.length,
-          favoriteStations:user.favoriteStations.length,
+          savedRoutes: user.savedRoutes?.length || 0,
+          favoriteStations: user.favoriteStations?.length || 0,
           isPremium:user.isPremium
         }
 

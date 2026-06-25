@@ -2220,8 +2220,8 @@ class _SafarSlotHomeState extends State<SafarSlotHome> with TickerProviderStateM
                           radius: 40,
                           backgroundColor: _saffron.withAlpha(20),
                           child: Text(
-                            _userProfile != null && _userProfile!['name'] != null 
-                                ? _userProfile!['name'].toString().substring(0, _userProfile!['name'].toString().length >= 2 ? 2 : 1).toUpperCase() 
+                            _userProfile != null && _userProfile!['name'] != null && _userProfile!['name'].toString().trim().isNotEmpty
+                                ? _userProfile!['name'].toString().trim().substring(0, 1).toUpperCase()
                                 : 'U',
                             style: const TextStyle(
                               fontSize: 24,
