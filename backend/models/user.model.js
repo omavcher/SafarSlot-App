@@ -95,6 +95,15 @@ const userSchema = new mongoose.Schema(
     lastLogin: {
       type: Date,
     },
+
+    recentLiveTrains: [
+      {
+        trainNo: { type: String, required: true },
+        trainName: { type: String, required: true },
+        route: { type: String, required: true },
+        searchedAt: { type: Date, default: Date.now },
+      }
+    ],
   },
   {
     timestamps: true,

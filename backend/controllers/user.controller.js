@@ -414,3 +414,62 @@ export const updateUserLanguage = async (req, res) => {
     return res.status(500).json({ success: false, message: "Internal Server Error" });
   }
 }
+
+export const saveRecentLiveTrain = async (req, res) => {
+  try {
+    const userId = req.userId;
+    const { trainNo, trainName, route } = req.body;
+
+    if (!trainNo || !trainName || !route) {
+      return res.status(400).json({ success: false, message: "Missing required fields" });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    // Initialize array if undefined
+    if (!user.recentLiveTrains) {
+      user.recentLiveTrains = [];
+    }
+
+    // Remove if already exists so we can bump it to the top
+    user.recentLiveTrains = user.recentLiveTrains.filter(t => t.trainNo !== trainNo);
+
+    // Add to the beginning of the array
+    user.recentLiveTrains.unshift({
+      trainNo,
+      trainName,
+      route,
+      searchedAt: new Date()
+    });
+
+    // Keep only the 5 most recent
+    if (user.recentLiveTrains.length > 5) {
+      user.recentLiveTrains = user.recentLiveTrains.slice(0, 5);
+    }
+
+    await user.save();
+    return res.status(200).json({ success: true, message: "Saved to recent live trains", data: user.recentLiveTrains });
+  } catch (error) {
+    console.log("Save Recent Live Train Error", error);
+    return res.status(500).json({ success: false, message: "Internal Server Error" });
+  }
+};
+
+export const getRecentLiveTrains = async (req, res) => {
+  try {
+    const userId = req.userId;
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    const recent = user.recentLiveTrains || [];
+    return res.status(200).json({ success: true, data: recent });
+  } catch (error) {
+    console.log("Get Recent Live Trains Error", error);
+    return res.status(500).json({ success: false, message: "Internal Server Error" });
+  }
+};
