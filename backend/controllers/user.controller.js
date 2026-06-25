@@ -290,6 +290,27 @@ export const updateUserLocation = async (req, res) => {
 };
 
 
+export const updateUserNotification = async (req, res) => {
+    try {
+        const { userId, notifications } = req.body;
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({ success: false, message: "User not found" });
+        }
+        
+        user.notifications = notifications;
+        await user.save();
+
+        return res.status(200).json({
+            success: true,
+            notifications: user.notifications,
+        });
+    } catch (error) {
+        console.log(error);
+        return res.status(500).json({ success: false, message: "Internal Server Error" });
+    }
+};
+
 export const userProfile = async (req,res)=>{
      try{
         const { userId } = req.body;
