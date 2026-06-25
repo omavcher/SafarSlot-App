@@ -167,3 +167,522 @@ export const reportTrain = async (req, res) => {
     res.status(500).json({ success: false, message: "Internal Server Error" });
   }
 };
+
+let cachedBrv1Cookie = "cede4c52b4961d7275a5a7257fabf138";
+
+const generateIrisCookie = () => {
+  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  let iris = '';
+  for (let i = 0; i < 25; i++) {
+    iris += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return iris;
+};
+
+const solveBrowserVerification = async (id, irisCookie) => {
+  try {
+    const mapUrl = `https://d.indiarailinfo.com/station/map/${id}`;
+    const mapResponse = await axios.get(mapUrl, {
+      headers: {
+        "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+        "accept-language": "en-US,en;q=0.5",
+        "cookie": `iris=${irisCookie}`,
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+      }
+    });
+
+    const html = mapResponse.data;
+
+    // If it's already the actual page (no verify-browser challenge)
+    if (!html.includes('verify-browser')) {
+      return { html, brv1: cachedBrv1Cookie };
+    }
+
+    const aMatch = /#iri-a::before\s*\{\s*content:\s*['"](\d+)['"]/i.exec(html);
+    const bMatch = /#iri-b::before\s*\{\s*content:\s*['"](\d+)['"]/i.exec(html);
+    const opMatch = /data-op="(\d+)"/i.exec(html);
+    const sigMatch = /data-sig="([^"]+)"/i.exec(html);
+
+    if (!aMatch || !bMatch || !opMatch || !sigMatch) {
+      return { html, brv1: cachedBrv1Cookie };
+    }
+
+    const a = parseInt(aMatch[1], 10);
+    const b = parseInt(bMatch[1], 10);
+    const op = parseInt(opMatch[1], 10);
+    const sig = sigMatch[1];
+
+    let nonce;
+    if (op === 1) { nonce = a * b; }
+    else if (op === 2) { nonce = (a + b) * (a - b + 100); }
+    else { nonce = (a * b) + (a + b); }
+    nonce = (((nonce % 900000) + 900000) % 900000) + 100000;
+
+    const ts = Math.floor(Date.now() / 1000);
+    const token = [0, 5, 1, 1, 4, 1, 1, 0, nonce, sig, ts].join(":");
+
+    const verifyUrl = `https://d.indiarailinfo.com/verify-browser?t=${token}`;
+    const verifyResponse = await axios.get(verifyUrl, {
+      headers: {
+        "accept": "*/*",
+        "accept-language": "en-US,en;q=0.5",
+        "cookie": `iris=${irisCookie}`,
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Referer": mapUrl,
+        "x-requested-with": "XMLHttpRequest"
+      }
+    });
+
+    let obtainedBrv1 = cachedBrv1Cookie;
+    const setCookie = verifyResponse.headers['set-cookie'];
+    if (setCookie) {
+      for (const cookieStr of setCookie) {
+        if (cookieStr.includes('brv1=')) {
+          const match = /brv1=([^;]+)/.exec(cookieStr);
+          if (match) {
+            obtainedBrv1 = match[1];
+          }
+        }
+      }
+    }
+
+    cachedBrv1Cookie = obtainedBrv1;
+
+    const finalMapResponse = await axios.get(mapUrl, {
+      headers: {
+        "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+        "accept-language": "en-US,en;q=0.5",
+        "cookie": `brv1=${obtainedBrv1}; iris=${irisCookie}`,
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+      }
+    });
+
+    return { html: finalMapResponse.data, brv1: obtainedBrv1 };
+
+  } catch (error) {
+    console.error("Error solving challenge:", error.message);
+    throw error;
+  }
+};
+
+export const searchStationsIndiarailinfo = async (req, res) => {
+  try {
+    const search = req.params.search || req.query.search || 'n';
+    const date = Date.now();
+    const URL = `https://d.indiarailinfo.com/shtml/list.shtml?LappGetStationList/${encodeURIComponent(search)}/0/0/0?&date=${date}&seq=0`;
+
+    const randomIris = generateIrisCookie();
+    const { brv1 } = await solveBrowserVerification('196', randomIris);
+
+    const response = await axios.get(URL, {
+      headers: {
+        "accept": "*/*",
+        "accept-language": "en-US,en;q=0.5",
+        "priority": "u=1, i",
+        "sec-ch-ua": "\"Brave\";v=\"149\", \"Chromium\";v=\"149\", \"Not)A;Brand\";v=\"24\"",
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": "\"Windows\"",
+        "sec-fetch-dest": "empty",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-site": "same-origin",
+        "sec-gpc": "1",
+        "x-requested-with": "XMLHttpRequest",
+        "cookie": `brv1=${brv1}; iris=${randomIris}`,
+        "Referer": "https://d.indiarailinfo.com/station/map/196",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+      }
+    });
+
+    const htmlContent = response.data;
+
+    const cleanText = (str) => {
+      if (!str) return "";
+      return str
+        .replace(/<[^>]+>/g, '')
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&amp;/g, '&')
+        .replace(/\s+/g, ' ')
+        .trim();
+    };
+
+    const trRegex = /<tr\b[^>]*>([\s\S]*?)<\/tr>/gi;
+    let trMatch;
+    const m1List = [];
+    const m2List = {};
+
+    while ((trMatch = trRegex.exec(htmlContent)) !== null) {
+      const trContent = trMatch[0];
+      
+      const m1Match = /class=rowM1\s+rowNum="(\d+)"/i.exec(trContent);
+      if (m1Match) {
+        const rowNum = m1Match[1];
+        
+        const idMatch = /<td[^>]*style="[^"]*display:\s*none[^"]*"[^>]*>(\d+)<\/td>/i.exec(trContent);
+        const id = idMatch ? idMatch[1] : "";
+        
+        const rcolMatch = /<td[^>]*class=rcol[^>]*>([\s\S]*?)<\/td>/i.exec(trContent);
+        const code = rcolMatch ? cleanText(rcolMatch[1]) : "";
+        
+        const icolMatch = /<td[^>]*class=icol[^>]*>([\s\S]*?)<\/td>/i.exec(trContent);
+        const name = icolMatch ? cleanText(icolMatch[1]) : "";
+        
+        const jcolMatch = /<td[^>]*class=jcol[^>]*>([\s\S]*?)<\/td>/i.exec(trContent);
+        const division = jcolMatch ? cleanText(jcolMatch[1]) : "";
+        
+        m1List.push({ rowNum, id, code, name, division });
+        continue;
+      }
+
+      const m2Match = /class=rowm2\s+rowNum="(\d+)"/i.exec(trContent);
+      if (m2Match) {
+        const rowNum = m2Match[1];
+        
+        const detailsMatch = /<td[^>]*colspan=2[^>]*>([\s\S]*?)<\/td>/i.exec(trContent);
+        const details = detailsMatch ? cleanText(detailsMatch[1]) : "";
+        
+        m2List[rowNum] = details;
+      }
+    }
+
+    const parsedStations = m1List.map(item => ({
+      id: item.id,
+      code: item.code,
+      name: item.name,
+      division: item.division,
+      details: m2List[item.rowNum] || ""
+    }));
+
+    res.status(200).json({
+      success: true,
+      stations: parsedStations
+    });
+
+  } catch (error) {
+    console.error("Indiarailinfo Search Error:", error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+const searchStationImages = async (query) => {
+  try {
+    const mainUrl = `https://duckduckgo.com/?q=${encodeURIComponent(query)}`;
+    const mainResponse = await axios.get(mainUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+      },
+      timeout: 5000
+    });
+
+    const html = mainResponse.data;
+    const vqdMatch = /vqd=['"]?([^'"]+)['"]?/.exec(html) || /vqd\s*[:=]\s*['"]?([^'"]+)['"]?/.exec(html);
+    if (!vqdMatch) {
+      console.warn("VQD not found in HTML for query:", query);
+      return [];
+    }
+    const vqd = vqdMatch[1];
+
+    const imagesUrl = `https://duckduckgo.com/i.js?q=${encodeURIComponent(query)}&o=json&vqd=${vqd}&f=size:Large,layout:Wide`;
+    const imagesResponse = await axios.get(imagesUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Referer": mainUrl
+      },
+      timeout: 5000
+    });
+
+    const results = imagesResponse.data.results || [];
+    const filteredImages = [];
+
+    for (const item of results) {
+      if (!item.image) continue;
+
+      const width = parseInt(item.width, 10) || 0;
+      const height = parseInt(item.height, 10) || 0;
+      
+      if (width >= 800 && height > 0 && (width / height) >= 1.3) {
+        filteredImages.push({
+          url: item.image,
+          caption: item.title || "Station Image"
+        });
+      }
+    }
+
+    return filteredImages;
+  } catch (error) {
+    console.error("Error fetching images from DDG:", error.message);
+    return [];
+  }
+};
+
+export const getStationDetailsIndiarailinfo = async (req, res) => {
+  try {
+    const id = req.params.id || req.query.id;
+    if (!id) {
+      return res.status(400).json({ success: false, message: "Station ID is required" });
+    }
+
+    const randomIris = generateIrisCookie();
+    const irisKey = randomIris.substring(0, 16);
+
+    // 1. Fetch map page dynamically, automatically bypasses verify-browser anti-bot
+    const { html, brv1 } = await solveBrowserVerification(id, randomIris);
+
+    // 2. Parse title and meta description
+    const titleMatch = /<title>([\s\S]*?)<\/title>/i.exec(html);
+    const title = titleMatch ? titleMatch[1].trim() : "";
+
+    const descMatch = /<meta name="description" content="([\s\S]*?)"/i.exec(html);
+    const description = descMatch ? descMatch[1].trim() : "";
+
+    // 3. Fetch sinfo details
+    const sinfoUrl = `https://d.indiarailinfo.com/sinfo?s=${id}&kkk=${Date.now()}`;
+    const sinfoResponse = await axios.get(sinfoUrl, {
+      headers: {
+        "accept": "application/json, text/javascript, */*; q=0.01",
+        "accept-language": "en-US,en;q=0.5",
+        "cookie": `brv1=${brv1}; iris=${randomIris}`,
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Referer": `https://d.indiarailinfo.com/station/map/${id}`,
+        "x-requested-with": "XMLHttpRequest"
+      }
+    });
+
+    const sinfo = sinfoResponse.data;
+
+    // Decrypt coordinates using XXTEA algorithm (pl1fgh)
+    const Base64 = {
+      decode: function(input) {
+        return Buffer.from(input, 'base64').toString('binary');
+      }
+    };
+
+    const Utf8 = {
+      encode: function(input) {
+        return Buffer.from(input, 'utf8').toString('binary');
+      },
+      decode: function(input) {
+        return Buffer.from(input, 'binary').toString('utf8');
+      }
+    };
+
+    const prs1ql = {
+      strToLongs: function(a) {
+        const b = Array(Math.ceil(a.length / 4));
+        for (let c = 0; c < b.length; c++) {
+          b[c] = (a.charCodeAt(4 * c) || 0) +
+                 ((a.charCodeAt(4 * c + 1) || 0) << 8) +
+                 ((a.charCodeAt(4 * c + 2) || 0) << 16) +
+                 ((a.charCodeAt(4 * c + 3) || 0) << 24);
+        }
+        return b;
+      },
+      longsToStr: function(a) {
+        const b = Array(a.length);
+        for (let c = 0; c < a.length; c++) {
+          b[c] = String.fromCharCode(
+            a[c] & 255,
+            (a[c] >>> 8) & 255,
+            (a[c] >>> 16) & 255,
+            (a[c] >>> 24) & 255
+          );
+        }
+        return b.join("");
+      },
+      pl1fgh: function(a, b) {
+        if (a.length === 0) return "";
+        a = prs1ql.strToLongs(Base64.decode(a));
+        b = prs1ql.strToLongs(Utf8.encode(b).slice(0, 16));
+        let c = a.length;
+        let d;
+        let f = a[0];
+        let e;
+        let g = 2654435769 * Math.floor(6 + 52 / c);
+        while (g !== 0) {
+          e = (g >>> 2) & 3;
+          for (let k = c - 1; 0 <= k; k--) {
+            d = a[0 < k ? k - 1 : c - 1];
+            d = ((d >>> 5 ^ f << 2) + (f >>> 3 ^ d << 4)) ^ ((g ^ f) + (b[(k & 3) ^ e] ^ d));
+            a[k] = (a[k] - d) | 0;
+            f = a[k];
+          }
+          g = (g - 2654435769) | 0;
+        }
+        a = prs1ql.longsToStr(a);
+        a = a.replace(/\0+$/, "");
+        return Utf8.decode(a);
+      }
+    };
+
+    let latitude = "";
+    let longitude = "";
+    if (sinfo.Lat && sinfo.Lng) {
+      latitude = prs1ql.pl1fgh(sinfo.Lat, irisKey);
+      longitude = prs1ql.pl1fgh(sinfo.Lng, irisKey);
+    }
+
+    const cleanText = (str) => {
+      if (!str) return "";
+      return str.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
+    };
+
+    const getMetaValue = (key, text) => {
+      const regex = new RegExp(key + '\\s*:\\s*([^.]+)', 'i');
+      const match = regex.exec(text);
+      return match ? match[1].trim() : "";
+    };
+
+    const zone = getMetaValue("Zone", description);
+    const type = getMetaValue("Type", description);
+    const category = getMetaValue("Category", description);
+    const track = getMetaValue("Track", description);
+    
+    const pfMatch = /(\d+)\s*Platforms/i.exec(description);
+    const platforms = pfMatch ? pfMatch[1] : "";
+    
+    const elevation = getMetaValue("Elevation", description);
+    const address = getMetaValue("Station Address", description);
+    const phone = getMetaValue("Tel", description);
+
+    let code = "";
+    let name = "";
+    const anchorMatch = /<a\b[^>]*href="\/station\/map\/\d+"[^>]*>([\s\S]*?)<\/a>/i.exec(sinfo.StnDesc);
+    if (anchorMatch) {
+      const anchorText = cleanText(anchorMatch[1]);
+      const parts = anchorText.split('/');
+      if (parts.length >= 2) {
+        code = parts[0].trim();
+        name = parts[1].replace(/\(\d+\s*PFs?\)/gi, '').trim();
+      }
+    }
+
+    // 4. Parse Follows
+    const followsMatch = /(\d+)\s*Follows/i.exec(html);
+    const follows = followsMatch ? parseInt(followsMatch[1], 10) : 0;
+
+    // 5. Parse Overall Rating
+    const ratingMatch = /Rating:\s*<span[^>]*>([\d.]+)<\/span>\/5\s*\((\d+)\s*votes\)/i.exec(html);
+    const overallRating = ratingMatch ? parseFloat(ratingMatch[1]) : null;
+    const ratingVotes = ratingMatch ? parseInt(ratingMatch[2], 10) : 0;
+
+    // 6. Parse Pointwise Ratings
+    const pointwise = {};
+    const rtgRegex = /<div class="rtg\d">([^<]+)&nbsp;-&nbsp;([^&]+)&nbsp;\((\d+)\)<\/div>/gi;
+    let rtgMatch;
+    while ((rtgMatch = rtgRegex.exec(html)) !== null) {
+      const categoryName = rtgMatch[1].replace(/&nbsp;/g, ' ').trim();
+      const ratingName = rtgMatch[2].replace(/&nbsp;/g, ' ').trim();
+      const votesCount = parseInt(rtgMatch[3].trim(), 10);
+      pointwise[categoryName] = { rating: ratingName, votes: votesCount };
+    }
+
+    // 7. Parse Board Images with Captions
+    const boards = [];
+    const boardRegex = /<div style="display:none;margin-top:8px;border:1px dotted blue;">([\s\S]*?)<\/div><div class="boardunit"><a href="([^"]+)"[^>]*><img src="([^"]+)">/gi;
+    let boardMatch;
+    while ((boardMatch = boardRegex.exec(html)) !== null) {
+      const captionText = boardMatch[1].replace(/&nbsp;/g, ' ').replace(/;\s*$/, '').trim();
+      const fullUrl = boardMatch[2].trim();
+      const thumbUrl = boardMatch[3].trim();
+      boards.push({ caption: captionText, fullUrl, thumbUrl });
+    }
+
+    // 8. Extract all unique image URLs matching the pattern
+    const imgPattern = /(?:https?:)?\/\/st\d*\.indiarailinfo\.com\/kjfdsuiemjvcya\d(?:\/\d+){6}\/[^\s"'><\\&]+/gi;
+    const allImgUrls = html.match(imgPattern) || [];
+    const uniqueImgs = [...new Set(allImgUrls)];
+
+    // Construct formattedImages up to 6 images
+    const formattedImages = [];
+    
+    // First add all boards images
+    boards.forEach(b => {
+      let url = b.fullUrl;
+      if (!url.startsWith('http:') && !url.startsWith('https:')) {
+        url = 'https:' + url;
+      }
+      formattedImages.push({
+        url: url,
+        caption: b.caption
+      });
+    });
+
+    // Then add other unique images that are not board thumbnails and not already in formattedImages
+    uniqueImgs.forEach(imgUrl => {
+      if (formattedImages.length >= 6) return;
+      
+      let fullUrl = imgUrl;
+      if (fullUrl.endsWith('_board.jpg')) {
+        fullUrl = fullUrl.replace('_board.jpg', '.jpg');
+      } else if (fullUrl.endsWith('_thumbnail.jpg')) {
+        fullUrl = fullUrl.replace('_thumbnail.jpg', '.jpg');
+      }
+
+      if (!fullUrl.startsWith('http:') && !fullUrl.startsWith('https:')) {
+        fullUrl = 'https:' + fullUrl;
+      }
+
+      const exists = formattedImages.some(fi => fi.url === fullUrl);
+      if (!exists) {
+        formattedImages.push({
+          url: fullUrl,
+          caption: "Station Photo"
+        });
+      }
+    });
+
+    // Fetch dynamic search images from DDG
+    let searchQuery = "";
+    if (name && code) {
+      searchQuery = `${name} Railway Station ${code}`;
+    } else if (title) {
+      const cleanTitle = title.replace(/\s*Map\/Atlas[\s\S]*$/gi, '').replace(/\s*-\s*Railway[\s\S]*$/gi, '').trim();
+      searchQuery = cleanTitle.includes("Station") ? cleanTitle : `${cleanTitle} Railway Station`;
+    }
+
+    let searchedImages = [];
+    if (searchQuery) {
+      searchedImages = await searchStationImages(searchQuery);
+    }
+
+    let finalImages = searchedImages;
+    if (finalImages.length === 0) {
+      finalImages = formattedImages;
+    } else if (finalImages.length > 6) {
+      finalImages = finalImages.slice(0, 6);
+    }
+
+    res.status(200).json({
+      success: true,
+      station: {
+        id: String(id),
+        code: code,
+        name: name,
+        title: title,
+        latitude: latitude,
+        longitude: longitude,
+        zone: zone,
+        type: type,
+        category: category,
+        track: track,
+        platforms: platforms,
+        elevation: elevation,
+        address: address,
+        phone: phone,
+        description: description,
+        follows: follows,
+        rating: {
+          value: overallRating,
+          votes: ratingVotes
+        },
+        ratingPointwise: pointwise,
+        images: finalImages,
+        rawDescriptionHtml: sinfo.StnDesc
+      }
+    });
+
+  } catch (error) {
+    console.error("Indiarailinfo Details Error:", error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+

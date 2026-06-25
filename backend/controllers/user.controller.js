@@ -494,3 +494,88 @@ export const getRecentLiveTrains = async (req, res) => {
     return res.status(500).json({ success: false, message: "Internal Server Error" });
   }
 };
+
+export const saveSavedRoute = async (req, res) => {
+  try {
+    const userId = req.body.userId;
+    const { trainNo, trainName, source, destination } = req.body;
+
+    if (!trainNo || !trainName || !source || !destination) {
+      return res.status(400).json({ success: false, message: "Missing required fields" });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    if (!user.savedRoutes) {
+      user.savedRoutes = [];
+    }
+
+    // Check if already saved
+    const exists = user.savedRoutes.some(r => r.trainNo === trainNo);
+    if (exists) {
+      return res.status(400).json({ success: false, message: "Route already saved" });
+    }
+
+    user.savedRoutes.unshift({
+      trainNo,
+      trainName,
+      source,
+      destination,
+      savedAt: new Date()
+    });
+
+    await user.save();
+    return res.status(200).json({ success: true, message: "Route saved successfully", data: user.savedRoutes });
+  } catch (error) {
+    console.log("Save Saved Route Error", error);
+    return res.status(500).json({ success: false, message: "Internal Server Error" });
+  }
+};
+
+export const getSavedRoutes = async (req, res) => {
+  try {
+    const userId = req.body.userId;
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    const routes = user.savedRoutes || [];
+    return res.status(200).json({ success: true, data: routes });
+  } catch (error) {
+    console.log("Get Saved Routes Error", error);
+    return res.status(500).json({ success: false, message: "Internal Server Error" });
+  }
+};
+
+export const deleteSavedRoute = async (req, res) => {
+  try {
+    const userId = req.body.userId;
+    const { trainNo } = req.params;
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    if (!user.savedRoutes) {
+      user.savedRoutes = [];
+    }
+
+    user.savedRoutes = user.savedRoutes.filter(r => r.trainNo !== trainNo);
+    await user.save();
+
+    return res.status(200).json({ success: true, message: "Route deleted successfully", data: user.savedRoutes });
+  } catch (error) {
+    console.log("Delete Saved Route Error", error);
+    return res.status(500).json({ success: false, message: "Internal Server Error" });
+  }
+};
+
+
+
+
+

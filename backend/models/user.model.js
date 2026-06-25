@@ -68,16 +68,12 @@ const userSchema = new mongoose.Schema(
 
     savedRoutes: [
       {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "SavedRoute",
-      },
-    ],
-
-    savedRoutes: [
-      {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "PnrStatus",
-      },
+        trainNo: { type: String, required: true },
+        trainName: { type: String, required: true },
+        source: { type: String, required: true },
+        destination: { type: String, required: true },
+        savedAt: { type: Date, default: Date.now },
+      }
     ],
 
     favoriteStations: [

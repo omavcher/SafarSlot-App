@@ -1,7 +1,7 @@
 import express from "express"
 const trainRouter = express();
 
-import { getPNR, getTrainNameCode, liveTrainStatus, stationsList, reportTrain, CoachPosition } from "../controllers/train.controller.js";
+import { getPNR, getTrainNameCode, liveTrainStatus, stationsList, reportTrain, CoachPosition, searchStationsIndiarailinfo, getStationDetailsIndiarailinfo } from "../controllers/train.controller.js";
 
 
 trainRouter.get("/pnr-status",getPNR);
@@ -10,6 +10,8 @@ trainRouter.get("/train-name-code/:search",getTrainNameCode)
 trainRouter.get("/train-live-status/:trainNo",liveTrainStatus);
 trainRouter.post("/report", reportTrain);
 trainRouter.get("/coach-position", CoachPosition);
+trainRouter.get("/stations/search/:search", searchStationsIndiarailinfo);
+trainRouter.get("/stations/details/:id", getStationDetailsIndiarailinfo);
 
 
 export default trainRouter;
