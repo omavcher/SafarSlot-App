@@ -1,4 +1,21 @@
-import axios from "axios"
+import axios from "axios";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const stationsDataPath = path.join(__dirname, "../data/stations.json");
+const localStationsData = JSON.parse(fs.readFileSync(stationsDataPath, "utf8"));
+const localStations = localStationsData.features;
+
+const stationsMap = {};
+localStations.forEach((station) => {
+  if (station.properties && station.properties.code && station.geometry && station.geometry.coordinates) {
+    stationsMap[station.properties.code] = station.geometry.coordinates; // [lng, lat]
+  }
+});
 
 export const getPNR = async (req,res)=>{
     try{
@@ -71,6 +88,18 @@ export const liveTrainStatus = async (req,res)=>{
     const URL = `https://www.redbus.in/railways/api/getLtsDetails?trainNo=${trainNo}`;
     const response = await axios.get(URL);
     const resData = response.data;
+    
+    if (resData && resData.stations) {
+      resData.stations = resData.stations.map(st => {
+        const coords = stationsMap[st.stationCode];
+        if (coords) {
+          st.lng = coords[0];
+          st.lat = coords[1];
+        }
+        return st;
+      });
+    }
+
     res.status(200).json({success:true,resData});
    } catch (error) {
             res.status(500).json({success:false,message:error.message})
