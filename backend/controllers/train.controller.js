@@ -91,7 +91,8 @@ export const liveTrainStatus = async (req,res)=>{
     
     if (resData && resData.stations) {
       resData.stations = resData.stations.map(st => {
-        const coords = stationsMap[st.stationCode];
+        const code = st.stationCode ? st.stationCode.trim().toUpperCase() : "";
+        const coords = stationsMap[code];
         if (coords) {
           st.lng = coords[0];
           st.lat = coords[1];
