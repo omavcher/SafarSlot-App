@@ -417,7 +417,7 @@ export const updateUserLanguage = async (req, res) => {
 
 export const saveRecentLiveTrain = async (req, res) => {
   try {
-    const userId = req.userId;
+    const userId = req.body.userId;
     const { trainNo, trainName, route } = req.body;
 
     if (!trainNo || !trainName || !route) {
@@ -445,9 +445,9 @@ export const saveRecentLiveTrain = async (req, res) => {
       searchedAt: new Date()
     });
 
-    // Keep only the 5 most recent
-    if (user.recentLiveTrains.length > 5) {
-      user.recentLiveTrains = user.recentLiveTrains.slice(0, 5);
+    // Keep only the 20 most recent
+    if (user.recentLiveTrains.length > 20) {
+      user.recentLiveTrains = user.recentLiveTrains.slice(0, 20);
     }
 
     await user.save();
@@ -460,7 +460,7 @@ export const saveRecentLiveTrain = async (req, res) => {
 
 export const getRecentLiveTrains = async (req, res) => {
   try {
-    const userId = req.userId;
+    const userId = req.body.userId;
     const user = await User.findById(userId);
     if (!user) {
       return res.status(404).json({ success: false, message: "User not found" });
