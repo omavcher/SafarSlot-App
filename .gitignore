@@ -1,4 +1,4 @@
-﻿node_modules/
+node_modules/
 .env
 .DS_Store
 .dart_tool/
@@ -6,3 +6,6 @@ build/
 .pub-cache/
 .pub/
 *.iml
+
+# Ignore the entire mobile app
+mobile_app/

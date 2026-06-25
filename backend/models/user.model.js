@@ -73,7 +73,7 @@ const userSchema = new mongoose.Schema(
       },
     ],
 
-    savedPnrs: [
+    savedRoutes: [
       {
         type: mongoose.Schema.Types.ObjectId,
         ref: "PnrStatus",

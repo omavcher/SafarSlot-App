@@ -63,9 +63,9 @@ export const getTrainNameCode = async (req,res)=>{
 
 export const liveTrainStatus = async (req,res)=>{
    try {
-    const {trainNo} = req.body;
-    if (!search) {
-         return res.status(400).json({ success: false, message: "Search train no is required" });
+    const {trainNo} = req.params;
+    if (!trainNo) {
+         return res.status(400).json({ success: false, message: "trainNo  is required" });
        }
 
     const URL = `https://www.redbus.in/railways/api/getLtsDetails?trainNo=${trainNo}`;
@@ -73,7 +73,7 @@ export const liveTrainStatus = async (req,res)=>{
     const resData = response.data;
     res.status(200).json({success:true,resData});
    } catch (error) {
-            res.status(500).json({success:false,message:err.message})
+            res.status(500).json({success:false,message:error.message})
    }
 }
 
