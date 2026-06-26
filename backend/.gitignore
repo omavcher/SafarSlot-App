@@ -1,2 +1,6 @@
-﻿node_modules/
+node_modules/
 .env
+inspect_schedules.js
+test_board.js
+test_load.js
+test_search.js
