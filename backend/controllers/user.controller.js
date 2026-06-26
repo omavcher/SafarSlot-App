@@ -301,6 +301,12 @@ export const updateUserNotification = async (req, res) => {
         }
         
         user.notifications = notifications;
+
+        // When turning OFF notifications, clear the FCM token so no push is sent
+        if (!notifications) {
+            user.fcmToken = null;
+        }
+
         await user.save();
 
         return res.status(200).json({
@@ -330,6 +336,7 @@ export const userProfile = async (req,res)=>{
           notification:user.notifications,
           savedRoutes: (user.savedRoutes || []).length,
           favoriteStations: (user.favoriteStations || []).length,
+          recentTrainSearches: (user.recentTrainSearches || []).length,
           isPremium:user.isPremium
         }
 
