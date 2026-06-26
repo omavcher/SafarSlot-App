@@ -748,8 +748,8 @@ export const searchTrainsBetweenStations = async (req, res) => {
 };
 
 // ─── Timetable Schedules Loading & Indexing ───────────────────────────
-let schedulesMap = {};
-let schedulesLoaded = false;
+export let schedulesMap = {};
+export let schedulesLoaded = false;
 
 const loadSchedules = () => {
   try {

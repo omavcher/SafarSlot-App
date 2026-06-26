@@ -1,6 +1,7 @@
 import User from "../models/user.model.js";
 import Otp from "../models/otp.model.js";
 import Station from "../models/station.model.js";
+import { schedulesMap } from "./train.controller.js";
 import axios from "axios";
 import dotenv from "dotenv";
 import bcrypt from "bcryptjs";
@@ -394,7 +395,11 @@ export const NearbyStation = async (req,res)=>{
             longitude: stnLon,
             isMetro: false,
             zone: station.properties?.zone,
-            state: station.properties?.state
+            state: station.properties?.state,
+
+            // Schedule tracking properties
+            hasSchedules: (station.properties?.code && schedulesMap[station.properties.code.toUpperCase()] && schedulesMap[station.properties.code.toUpperCase()].length > 0) ? true : false,
+            trainCount: (station.properties?.code && schedulesMap[station.properties.code.toUpperCase()]) ? schedulesMap[station.properties.code.toUpperCase()].length : 0
           });
         }
       }
