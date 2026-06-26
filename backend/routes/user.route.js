@@ -1,5 +1,5 @@
 import express from 'express';
-import { loginUser, signupUser, sendOtp, NearbyStation, userProfile, updateUserLanguage, updateUserLocation, updateUserNotification, saveRecentLiveTrain, getRecentLiveTrains, saveSavedRoute, getSavedRoutes, deleteSavedRoute } from '../controllers/user.controller.js';
+import { loginUser, signupUser, sendOtp, NearbyStation, userProfile, updateUserLanguage, updateUserLocation, updateUserNotification, saveRecentLiveTrain, getRecentLiveTrains, saveSavedRoute, getSavedRoutes, deleteSavedRoute, saveFavoriteStation, deleteFavoriteStation, getFavoriteStations } from '../controllers/user.controller.js';
 import authMiddleware from '../middleware/auth.middleware.js';
 import { CoachPosition } from '../controllers/train.controller.js';
 const userRouter = express.Router();
@@ -23,5 +23,9 @@ userRouter.get("/recent-live-trains", authMiddleware, getRecentLiveTrains);
 userRouter.post("/saved-routes", authMiddleware, saveSavedRoute);
 userRouter.get("/saved-routes", authMiddleware, getSavedRoutes);
 userRouter.delete("/saved-routes/:trainNo", authMiddleware, deleteSavedRoute);
+
+userRouter.post("/favorite-stations", authMiddleware, saveFavoriteStation);
+userRouter.get("/favorite-stations", authMiddleware, getFavoriteStations);
+userRouter.delete("/favorite-stations/:stationCode", authMiddleware, deleteFavoriteStation);
 
 export default userRouter;

@@ -1,5 +1,6 @@
 import User from "../models/user.model.js";
 import Otp from "../models/otp.model.js";
+import Station from "../models/station.model.js";
 import axios from "axios";
 import dotenv from "dotenv";
 import bcrypt from "bcryptjs";
@@ -326,8 +327,8 @@ export const userProfile = async (req,res)=>{
           city:user.city,
           location:user.location,
           notification:user.notifications,
-          savedRoutes:user.savedRoutes.length,
-          favoriteStations:user.favoriteStations.length,
+          savedRoutes: (user.savedRoutes || []).length,
+          favoriteStations: (user.favoriteStations || []).length,
           isPremium:user.isPremium
         }
 
@@ -574,6 +575,126 @@ export const deleteSavedRoute = async (req, res) => {
     return res.status(500).json({ success: false, message: "Internal Server Error" });
   }
 };
+
+export const saveFavoriteStation = async (req, res) => {
+  try {
+    const userId = req.body.userId;
+    const { 
+      stationCode, 
+      stationName,
+      zone,
+      platforms,
+      elevation,
+      track,
+      address,
+      phone,
+      category,
+      images,
+      rating,
+      ratingPointwise 
+    } = req.body;
+
+    if (!stationCode || !stationName) {
+      return res.status(400).json({ success: false, message: "Missing required fields (stationCode, stationName)" });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    let station = await Station.findOne({ code: stationCode.toUpperCase() });
+    if (!station) {
+      station = new Station({
+        code: stationCode,
+        name: stationName,
+        zone,
+        platforms,
+        elevation,
+        track,
+        address,
+        phone,
+        category,
+        images,
+        rating,
+        ratingPointwise
+      });
+      await station.save();
+    } else {
+      if (zone) station.zone = zone;
+      if (platforms) station.platforms = platforms;
+      if (elevation) station.elevation = elevation;
+      if (track) station.track = track;
+      if (address) station.address = address;
+      if (phone) station.phone = phone;
+      if (category) station.category = category;
+      if (images) station.images = images;
+      if (rating) station.rating = rating;
+      if (ratingPointwise) station.ratingPointwise = ratingPointwise;
+      await station.save();
+    }
+
+    if (!user.favoriteStations) {
+      user.favoriteStations = [];
+    }
+
+    if (!user.favoriteStations.includes(station._id)) {
+      user.favoriteStations.push(station._id);
+      await user.save();
+    }
+
+    return res.status(200).json({ success: true, message: "Station favorited successfully", data: station });
+  } catch (error) {
+    console.log("Save Favorite Station Error", error);
+    return res.status(500).json({ success: false, message: "Internal Server Error" });
+  }
+};
+
+export const deleteFavoriteStation = async (req, res) => {
+  try {
+    const userId = req.body.userId;
+    const { stationCode } = req.params;
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    const station = await Station.findOne({ code: stationCode.toUpperCase() });
+    if (!station) {
+      return res.status(404).json({ success: false, message: "Station not found in database" });
+    }
+
+    if (user.favoriteStations) {
+      user.favoriteStations = user.favoriteStations.filter(
+        id => id.toString() !== station._id.toString()
+      );
+      await user.save();
+    }
+
+    return res.status(200).json({ success: true, message: "Station removed from favorites successfully" });
+  } catch (error) {
+    console.log("Delete Favorite Station Error", error);
+    return res.status(500).json({ success: false, message: "Internal Server Error" });
+  }
+};
+
+export const getFavoriteStations = async (req, res) => {
+  try {
+    const userId = req.body.userId;
+    const user = await User.findById(userId).populate("favoriteStations");
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    const favorites = user.favoriteStations || [];
+    return res.status(200).json({ success: true, data: favorites });
+  } catch (error) {
+    console.log("Get Favorite Stations Error", error);
+    return res.status(500).json({ success: false, message: "Internal Server Error" });
+  }
+};
+
 
 
 

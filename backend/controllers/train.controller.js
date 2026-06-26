@@ -686,3 +686,250 @@ export const getStationDetailsIndiarailinfo = async (req, res) => {
   }
 };
 
+export const searchTrainsBetweenStations = async (req, res) => {
+  try {
+    const { src, dst, doj } = req.body;
+    if (!src || !dst || !doj) {
+      return res.status(400).json({ success: false, message: "Source, destination, and date of journey are required" });
+    }
+
+    const payload = {
+      src: src.toUpperCase(),
+      dst: dst.toUpperCase(),
+      doj: doj, // YYYYMMDD
+      filter: {},
+      sort: {},
+      allowedQuotaList: [],
+      enableRecaptcha: false,
+      showConnectingTrains: true
+    };
+
+    const response = await axios.post("https://www.redbus.in/rails/api/searchResults", payload, {
+      headers: {
+        "Content-Type": "application/json",
+        "accept": "application/json, text/plain, */*",
+        "accept-language": "en-US,en;q=0.9",
+        "referer": "https://www.redbus.in/ryde/trains",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+      }
+    });
+
+    res.status(200).json({
+      success: true,
+      data: response.data
+    });
+  } catch (error) {
+    console.error("Search Trains Between Stations Error:", error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ─── Timetable Schedules Loading & Indexing ───────────────────────────
+let schedulesMap = {};
+let schedulesLoaded = false;
+
+const loadSchedules = () => {
+  try {
+    console.time("Load Schedules");
+    const schedulesPath = path.join(__dirname, "../data/schedules.json");
+    if (fs.existsSync(schedulesPath)) {
+      const data = JSON.parse(fs.readFileSync(schedulesPath, "utf8"));
+      data.forEach(item => {
+        const code = item.station_code ? item.station_code.trim().toUpperCase() : "";
+        if (code) {
+          if (!schedulesMap[code]) {
+            schedulesMap[code] = [];
+          }
+          schedulesMap[code].push(item);
+        }
+      });
+      schedulesLoaded = true;
+      console.timeEnd("Load Schedules");
+      console.log(`Loaded ${data.length} schedules, indexed by ${Object.keys(schedulesMap).length} stations.`);
+    } else {
+      console.warn("Schedules file not found at:", schedulesPath);
+    }
+  } catch (error) {
+    console.error("Error loading schedules.json:", error);
+  }
+};
+
+loadSchedules();
+
+export const getStationBoard = async (req, res) => {
+  try {
+    const { stationCode } = req.params;
+    const timeQuery = req.query.time; // Format "HH:mm" (optional)
+
+    if (!stationCode) {
+      return res.status(400).json({ success: false, message: "Station code is required" });
+    }
+
+    const code = stationCode.trim().toUpperCase();
+    const stationSchedules = schedulesMap[code] || [];
+
+    // Current time in minutes since midnight (Indian Standard Time)
+    let nowMinutes;
+    if (timeQuery && /^([01]\d|2[0-3]):[0-5]\d$/.test(timeQuery)) {
+      const [h, m] = timeQuery.split(":").map(Number);
+      nowMinutes = h * 60 + m;
+    } else {
+      const d = new Date();
+      // Adjust server local/UTC time to IST (UTC +5:30)
+      const utcTime = d.getTime() + (d.getTimezoneOffset() * 60000);
+      const istDate = new Date(utcTime + (3600000 * 5.5));
+      nowMinutes = istDate.getHours() * 60 + istDate.getMinutes();
+    }
+
+    const timeToMinutes = (tStr) => {
+      if (!tStr || tStr === "None") return null;
+      const parts = tStr.split(":");
+      return Number(parts[0]) * 60 + Number(parts[1]);
+    };
+
+    const arrivingSoon = [];
+    const atPlatform = [];
+    const departedRecently = [];
+    const nextTrains = [];
+
+    // For statistics
+    let arr30minCount = 0;
+    let dep30minCount = 0;
+    let totalTodayCount = stationSchedules.length;
+    let lastDeparted = null;
+    let firstTomorrow = null;
+    let minTomorrowArr = 99999;
+    let maxDepartedTime = -1;
+
+    // Busy hours slots: 12 slots of 2 hours each
+    const busySlots = Array(12).fill(0);
+
+    for (const item of stationSchedules) {
+      let arrMin = timeToMinutes(item.arrival);
+      let depMin = timeToMinutes(item.departure);
+
+      if (arrMin === null && depMin === null) continue;
+      if (arrMin === null) arrMin = depMin;
+      if (depMin === null) depMin = arrMin;
+
+      // Group in busy hours (using departure time)
+      const slotIndex = Math.floor(depMin / 120) % 12;
+      busySlots[slotIndex]++;
+
+      // 1. Arriving Soon: coming in next 60 minutes
+      const timeToArrival = arrMin - nowMinutes;
+      if (timeToArrival > 0 && timeToArrival <= 60) {
+        arrivingSoon.push({
+          ...item,
+          timeToArrival,
+          arrTimeFormatted: item.arrival.substring(0, 5),
+          depTimeFormatted: item.departure.substring(0, 5)
+        });
+      }
+
+      // 2. At Platform: arrival <= now <= departure
+      if (arrMin <= nowMinutes && nowMinutes <= depMin) {
+        const timeToDeparture = depMin - nowMinutes;
+        atPlatform.push({
+          ...item,
+          timeToDeparture,
+          arrTimeFormatted: item.arrival.substring(0, 5),
+          depTimeFormatted: item.departure.substring(0, 5)
+        });
+      }
+
+      // 3. Departed Recently: departed in last 30 minutes
+      const timeSinceDeparture = nowMinutes - depMin;
+      if (timeSinceDeparture > 0 && timeSinceDeparture <= 30) {
+        departedRecently.push({
+          ...item,
+          timeSinceDeparture,
+          arrTimeFormatted: item.arrival.substring(0, 5),
+          depTimeFormatted: item.departure.substring(0, 5)
+        });
+      }
+
+      // 4. Next Trains: arriving in next 60 to 180 mins
+      if (timeToArrival > 60 && timeToArrival <= 180) {
+        nextTrains.push({
+          ...item,
+          timeToArrival,
+          arrTimeFormatted: item.arrival.substring(0, 5),
+          depTimeFormatted: item.departure.substring(0, 5)
+        });
+      }
+
+      // Stats calculations
+      if (timeToArrival > 0 && timeToArrival <= 30) {
+        arr30minCount++;
+      }
+      const timeToDepartureVal = depMin - nowMinutes;
+      if (timeToDepartureVal > 0 && timeToDepartureVal <= 30) {
+        dep30minCount++;
+      }
+
+      // Last departed train
+      if (depMin <= nowMinutes && depMin > maxDepartedTime) {
+        maxDepartedTime = depMin;
+        lastDeparted = {
+          ...item,
+          timeSinceDeparture: nowMinutes - depMin,
+          arrTimeFormatted: item.arrival.substring(0, 5),
+          depTimeFormatted: item.departure.substring(0, 5)
+        };
+      }
+
+      // First train tomorrow
+      if (arrMin < minTomorrowArr) {
+        minTomorrowArr = arrMin;
+        firstTomorrow = {
+          ...item,
+          arrTimeFormatted: item.arrival.substring(0, 5),
+          depTimeFormatted: item.departure.substring(0, 5)
+        };
+      }
+    }
+
+    // Format busy hours list
+    const busyHours = [];
+    for (let i = 0; i < 12; i++) {
+      const startHour = String(i * 2).padStart(2, "0");
+      const endHour = String((i + 1) * 2).padStart(2, "0");
+      busyHours.push({
+        slot: `${startHour}:00–${endHour}:00`,
+        count: busySlots[i]
+      });
+    }
+
+    // Sort outputs
+    arrivingSoon.sort((a, b) => a.timeToArrival - b.timeToArrival);
+    atPlatform.sort((a, b) => a.timeToDeparture - b.timeToDeparture);
+    departedRecently.sort((a, b) => a.timeSinceDeparture - b.timeSinceDeparture);
+    nextTrains.sort((a, b) => a.timeToArrival - b.timeToArrival);
+
+    res.status(200).json({
+      success: true,
+      stationCode: code,
+      currentTime: `${String(Math.floor(nowMinutes / 60)).padStart(2, "0")}:${String(nowMinutes % 60).padStart(2, "0")}`,
+      arrivingSoon,
+      atPlatform,
+      departedRecently,
+      nextTrains,
+      stats: {
+        arrivingNext30Min: arr30minCount,
+        departingNext30Min: dep30minCount,
+        currentlyAtStation: atPlatform.length,
+        totalTrainsToday: totalTodayCount,
+        lastDeparted,
+        firstTomorrow,
+        busyHours
+      }
+    });
+
+  } catch (error) {
+    console.error("Get Station Board Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+
