@@ -1,5 +1,5 @@
 import express from 'express';
-import { loginUser, signupUser, sendOtp, NearbyStation, userProfile, updateUserLanguage, updateUserLocation, updateUserNotification, saveRecentLiveTrain, getRecentLiveTrains, saveSavedRoute, getSavedRoutes, deleteSavedRoute, saveFavoriteStation, deleteFavoriteStation, getFavoriteStations } from '../controllers/user.controller.js';
+import { loginUser, signupUser, sendOtp, NearbyStation, userProfile, updateUserLanguage, updateUserLocation, updateUserNotification, saveRecentLiveTrain, getRecentLiveTrains, saveSavedRoute, getSavedRoutes, deleteSavedRoute, saveFavoriteStation, deleteFavoriteStation, getFavoriteStations, saveRecentTrainSearch, getRecentTrainSearches, saveRecentStationSearch, getRecentStationSearches } from '../controllers/user.controller.js';
 import authMiddleware from '../middleware/auth.middleware.js';
 import { CoachPosition } from '../controllers/train.controller.js';
 const userRouter = express.Router();
@@ -8,9 +8,9 @@ userRouter.post("/send-otp", sendOtp);
 userRouter.post("/sign-up",signupUser);
 userRouter.post("/log-in",loginUser);
 
-userRouter.post("/get-nearby-stations",NearbyStation);
+userRouter.post("/get-nearby-stations", NearbyStation);
 
-userRouter.get("/coach-position",CoachPosition);
+userRouter.get("/coach-position", CoachPosition);
 
 userRouter.get("/profile", authMiddleware, userProfile);
 userRouter.put("/language", authMiddleware, updateUserLanguage);
@@ -27,5 +27,11 @@ userRouter.delete("/saved-routes/:trainNo", authMiddleware, deleteSavedRoute);
 userRouter.post("/favorite-stations", authMiddleware, saveFavoriteStation);
 userRouter.get("/favorite-stations", authMiddleware, getFavoriteStations);
 userRouter.delete("/favorite-stations/:stationCode", authMiddleware, deleteFavoriteStation);
+
+userRouter.post("/recent-train-searches", authMiddleware, saveRecentTrainSearch);
+userRouter.get("/recent-train-searches", authMiddleware, getRecentTrainSearches);
+
+userRouter.post("/recent-station-searches", authMiddleware, saveRecentStationSearch);
+userRouter.get("/recent-station-searches", authMiddleware, getRecentStationSearches);
 
 export default userRouter;

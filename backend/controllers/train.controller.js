@@ -20,26 +20,46 @@ localStations.forEach((station) => {
   }
 });
 
-export const getPNR = async (req,res)=>{
-    try{
-        const {pnr}=req.body;
-        if (pnr.length !== 10) {
-  return res.status(400).json({
-    success: false,
-    message: "Please Provide Correct PNR",
-  });
-}
-        const URL = `https://cttrainsapi.confirmtkt.com/api/v2/ctpro/mweb/${pnr}?querysource=ct-mweb&locale=en&getHighChanceText=true&livePnr=false`
-       const response = await axios.post(URL, { proPlanName: "" });
-       const pnrDetails = response.data?.data?.pnrResponse || response.data;
-       res.status(200).json({
-        success:true,
-        message:"PNR Status Fetched Successfully",
-        data: pnrDetails
-       });
-    }catch(error){
+export const getPNR = async (req, res) => {
+    try {
+        const pnr = req.query.pnr || req.body.pnr;
+        if (!pnr || pnr.toString().length !== 10) {
+            return res.status(400).json({
+                success: false,
+                message: "Please Provide Correct 10-Digit PNR",
+            });
+        }
+        
+        const URL = "https://www.redbus.in/rails/api/getPnrToolKitData";
+        const response = await axios.post(URL, {
+            mobile: "",
+            pnr: pnr.toString()
+        }, {
+            headers: {
+                "Content-Type": "application/json",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            }
+        });
+        
+        const pnrData = response.data;
+        
+        // If there's an error message or errorcode in response
+        if (pnrData.errorcode && pnrData.errorcode !== "0") {
+            return res.status(200).json({
+                success: false,
+                message: pnrData.errormsg || pnrData.detailedmsg || "PNR Number doesn't exist",
+                data: pnrData
+            });
+        }
+        
+        res.status(200).json({
+            success: true,
+            message: "PNR Status Fetched Successfully",
+            data: pnrData
+        });
+    } catch (error) {
         console.error("Get PNR Error", error.message);
-        res.status(500).json({success:false,message:error.message})
+        res.status(500).json({ success: false, message: error.message });
     }
 }
 

@@ -695,6 +695,122 @@ export const getFavoriteStations = async (req, res) => {
   }
 };
 
+export const saveRecentTrainSearch = async (req, res) => {
+  try {
+    const userId = req.body.userId;
+    const { fromCode, fromName, toCode, toName, date, travelClass } = req.body;
+
+    if (!fromCode || !fromName || !toCode || !toName) {
+      return res.status(400).json({ success: false, message: "Missing required fields" });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    if (!user.recentTrainSearches) {
+      user.recentTrainSearches = [];
+    }
+
+    // De-duplicate: remove older search for the exact same from -> to route
+    user.recentTrainSearches = user.recentTrainSearches.filter(
+      s => !(s.fromCode === fromCode && s.toCode === toCode)
+    );
+
+    user.recentTrainSearches.unshift({
+      fromCode,
+      fromName,
+      toCode,
+      toName,
+      date: date || "",
+      travelClass: travelClass || "All Classes",
+      searchedAt: new Date()
+    });
+
+    if (user.recentTrainSearches.length > 20) {
+      user.recentTrainSearches = user.recentTrainSearches.slice(0, 20);
+    }
+
+    await user.save();
+    return res.status(200).json({ success: true, message: "Saved to recent searches", data: user.recentTrainSearches });
+  } catch (error) {
+    console.log("Save Recent Train Search Error", error);
+    return res.status(500).json({ success: false, message: "Internal Server Error" });
+  }
+};
+
+export const getRecentTrainSearches = async (req, res) => {
+  try {
+    const userId = req.body.userId;
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+    const recent = user.recentTrainSearches || [];
+    return res.status(200).json({ success: true, data: recent });
+  } catch (error) {
+    console.log("Get Recent Train Searches Error", error);
+    return res.status(500).json({ success: false, message: "Internal Server Error" });
+  }
+};
+
+export const saveRecentStationSearch = async (req, res) => {
+  try {
+    const userId = req.body.userId;
+    const { stationCode, stationName } = req.body;
+
+    if (!stationCode || !stationName) {
+      return res.status(400).json({ success: false, message: "Missing stationCode or stationName" });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    if (!user.recentStationSearches) {
+      user.recentStationSearches = [];
+    }
+
+    // De-duplicate
+    user.recentStationSearches = user.recentStationSearches.filter(
+      s => s.stationCode !== stationCode
+    );
+
+    user.recentStationSearches.unshift({
+      stationCode,
+      stationName,
+      searchedAt: new Date()
+    });
+
+    if (user.recentStationSearches.length > 20) {
+      user.recentStationSearches = user.recentStationSearches.slice(0, 20);
+    }
+
+    await user.save();
+    return res.status(200).json({ success: true, message: "Saved recent station search", data: user.recentStationSearches });
+  } catch (error) {
+    console.log("Save Recent Station Search Error", error);
+    return res.status(500).json({ success: false, message: "Internal Server Error" });
+  }
+};
+
+export const getRecentStationSearches = async (req, res) => {
+  try {
+    const userId = req.body.userId;
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+    const recent = user.recentStationSearches || [];
+    return res.status(200).json({ success: true, data: recent });
+  } catch (error) {
+    console.log("Get Recent Station Searches Error", error);
+    return res.status(500).json({ success: false, message: "Internal Server Error" });
+  }
+};
+
 
 
 

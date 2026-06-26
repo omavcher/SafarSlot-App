@@ -100,6 +100,26 @@ const userSchema = new mongoose.Schema(
         searchedAt: { type: Date, default: Date.now },
       }
     ],
+
+    recentTrainSearches: [
+      {
+        fromCode: { type: String, required: true },
+        fromName: { type: String, required: true },
+        toCode: { type: String, required: true },
+        toName: { type: String, required: true },
+        date: { type: String },
+        travelClass: { type: String },
+        searchedAt: { type: Date, default: Date.now },
+      }
+    ],
+
+    recentStationSearches: [
+      {
+        stationCode: { type: String, required: true },
+        stationName: { type: String, required: true },
+        searchedAt: { type: Date, default: Date.now },
+      }
+    ],
   },
   {
     timestamps: true,
