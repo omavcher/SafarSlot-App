@@ -4,90 +4,22 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { TrainReport } from "../models/report.model.js";
 import jwt from "jsonwebtoken";
+import {
+  getStationNamesByCode,
+  pickLocalizedName,
+  applyStationNames,
+  applyTrainNames,
+  enrichPnrData,
+  enrichLiveTrainStatus,
+  enrichStationBoardItem,
+} from "../utils/localization.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+const getRequestLang = (req) =>
+  req.query.lang || (req.body && req.body.lang) || req.headers["accept-language"];
 
-const stationsDataPath = path.join(__dirname, "../data/stations.json");
-const rawData = JSON.parse(fs.readFileSync(stationsDataPath, "utf8"));
-
-const normalizeStations = (data) => {
-  let features = Array.isArray(data) ? data : (data.features || []);
-  return features.map(station => {
-    if (station.properties && station.properties.code) {
-      return station;
-    }
-    const code = station['properties/code'] || "";
-    const name = station['properties/name'] || "";
-    const zone = station['properties/zone'] || "";
-    const state = station['properties/state'] || "";
-    const address = station['properties/address'] || "";
-    
-    let coordinates = null;
-    if (station['geometry/coordinates/0'] !== undefined && station['geometry/coordinates/1'] !== undefined) {
-      const lng = parseFloat(station['geometry/coordinates/0'] || 0);
-      const lat = parseFloat(station['geometry/coordinates/1'] || 0);
-      coordinates = [lng, lat];
-    } else if (station.geometry && station.geometry.coordinates) {
-      coordinates = station.geometry.coordinates;
-    }
-
-    return {
-      ...station,
-      properties: {
-        code,
-        name,
-        zone,
-        state,
-        address
-      },
-      geometry: {
-        type: station['geometry/type'] || "Point",
-        coordinates: coordinates || [0, 0]
-      }
-    };
-  });
-};
-
-const localStations = normalizeStations(rawData);
-
-const getLocalizedStationName = (station, lang) => {
-  if (!station) return "Unknown Station";
-  if (!lang) return station.properties?.name || "Unknown Station";
-  
-  const cleanLang = lang.split('-')[0].toLowerCase();
-  const nameMap = {
-    'hi': station.properties_name_hi,
-    'ma': station.properties_name_ma,
-    'ta': station.properties_name_ta,
-    'te': station.properties_name_te,
-    'tel': station.properties_name_te,
-    'kn': station.properties_name_kn,
-    'ka': station.properties_name_kn,
-    'ml': station.properties_name_ml,
-    'mal': station.properties_name_ml,
-    'bn': station.properties_name_bn,
-    'bengali': station.properties_name_bn,
-    'pa': station.properties_name_pa,
-    'panj': station.properties_name_pa,
-    'or': station.properties_name_or,
-    'odia': station.properties_name_or,
-  };
-  
-  const val = nameMap[cleanLang];
-  if (val && val.trim() !== "" && val !== station.properties?.code) {
-    return val;
-  }
-  return station.properties?.name || "Unknown Station";
-};
-
-const stationsMap = {};
-localStations.forEach((station) => {
-  if (station.properties && station.properties.code && station.geometry && station.geometry.coordinates) {
-    stationsMap[station.properties.code] = station.geometry.coordinates; // [lng, lat]
-  }
-});
 
 export const getPNR = async (req, res) => {
     try {
@@ -123,6 +55,8 @@ export const getPNR = async (req, res) => {
                 data: pnrData
             });
         }
+
+        enrichPnrData(pnrData, getRequestLang(req));
         
         res.status(200).json({
             success: true,
@@ -144,6 +78,15 @@ export const stationsList = async (req,res)=>{
        const URL = `https://www.redbus.in/rails/api/solarSearch?search=${search}`;
        const response = await axios.get(URL);
        const resData = response.data.response;
+        if (resData && resData.docs) {
+          const lang = getRequestLang(req);
+          resData.docs = resData.docs.map((doc) => {
+            if (doc.stationCode) {
+              applyStationNames(doc, doc.stationCode, ["stationName"], lang);
+            }
+            return doc;
+          });
+        }
        res.status(200).json({success:true,resData});
   }catch(err){
     const apiError = err.response?.data || err.message;
@@ -164,6 +107,21 @@ export const getTrainNameCode = async (req,res)=>{
 
         const response = await axios.get(URL);
         const resData = response.data.response;
+        if (resData && resData.docs) {
+          const lang = getRequestLang(req);
+          resData.docs = resData.docs.map((doc) => {
+            if (doc.trainNo != null) {
+              applyTrainNames(doc, doc.trainNo, ["trainName"], lang);
+            }
+            if (doc.srcStationCode) {
+              applyStationNames(doc, doc.srcStationCode, ["srcStationName"], lang);
+            }
+            if (doc.destStationCode) {
+              applyStationNames(doc, doc.destStationCode, ["destStationName"], lang);
+            }
+            return doc;
+          });
+        }
         res.status(200).json({success:true,resData});
 
     }catch(err){
@@ -184,17 +142,7 @@ export const liveTrainStatus = async (req,res)=>{
     const response = await axios.get(URL);
     const resData = response.data;
     
-    if (resData && resData.stations) {
-      resData.stations = resData.stations.map(st => {
-        const code = st.stationCode ? st.stationCode.trim().toUpperCase() : "";
-        const coords = stationsMap[code];
-        if (coords) {
-          st.lng = coords[0];
-          st.lat = coords[1];
-        }
-        return st;
-      });
-    }
+    enrichLiveTrainStatus(resData, getRequestLang(req));
 
     res.status(200).json({success:true,resData});
    } catch (error) {
@@ -436,21 +384,20 @@ export const searchStationsIndiarailinfo = async (req, res) => {
       }
     }
 
-    const lang = req.query.lang || req.body.lang || req.headers['accept-language'];
-    const parsedStations = m1List.map(item => {
+    const lang = getRequestLang(req);
+    const parsedStations = m1List.map((item) => {
       let stationName = item.name;
-      if (item.code) {
-        const matchedStn = localStations.find(s => s.properties?.code?.toUpperCase() === item.code.toUpperCase());
-        if (matchedStn) {
-          stationName = getLocalizedStationName(matchedStn, lang);
-        }
+      const names = getStationNamesByCode(item.code);
+      if (names) {
+        stationName = pickLocalizedName(names, lang);
       }
       return {
         id: item.id,
         code: item.code,
         name: stationName,
+        stationNames: names || undefined,
         division: item.division,
-        details: m2List[item.rowNum] || ""
+        details: m2List[item.rowNum] || "",
       };
     });
 
@@ -658,10 +605,10 @@ export const getStationDetailsIndiarailinfo = async (req, res) => {
     }
 
     if (code) {
-      const matchedStn = localStations.find(s => s.properties?.code?.toUpperCase() === code.toUpperCase());
-      if (matchedStn) {
-        const lang = req.query.lang || req.body.lang || req.headers['accept-language'];
-        name = getLocalizedStationName(matchedStn, lang);
+      const names = getStationNamesByCode(code);
+      if (names) {
+        const lang = getRequestLang(req);
+        name = pickLocalizedName(names, lang);
       }
     }
 
@@ -767,6 +714,7 @@ export const getStationDetailsIndiarailinfo = async (req, res) => {
         id: String(id),
         code: code,
         name: name,
+        stationNames: getStationNamesByCode(code) || undefined,
         title: title,
         latitude: latitude,
         longitude: longitude,
@@ -823,6 +771,22 @@ export const searchTrainsBetweenStations = async (req, res) => {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
       }
     });
+
+    const lang = getRequestLang(req);
+    if (response.data && response.data.trainBtwnStnsList) {
+      response.data.trainBtwnStnsList = response.data.trainBtwnStnsList.map((train) => {
+        if (train.trainNo != null) {
+          applyTrainNames(train, train.trainNo, ["trainName"], lang);
+        }
+        if (train.fromStnCode) {
+          applyStationNames(train, train.fromStnCode, ["fromStnName"], lang);
+        }
+        if (train.toStnCode) {
+          applyStationNames(train, train.toStnCode, ["toStnName"], lang);
+        }
+        return train;
+      });
+    }
 
     res.status(200).json({
       success: true,
@@ -1017,9 +981,23 @@ export const getStationBoard = async (req, res) => {
     departedRecently.sort((a, b) => a.timeSinceDeparture - b.timeSinceDeparture);
     nextTrains.sort((a, b) => a.timeToArrival - b.timeToArrival);
 
+    const lang = getRequestLang(req);
+    const translateItem = (it) => enrichStationBoardItem(it, lang);
+
+    arrivingSoon.forEach(translateItem);
+    atPlatform.forEach(translateItem);
+    departedRecently.forEach(translateItem);
+    nextTrains.forEach(translateItem);
+    if (lastDeparted) translateItem(lastDeparted);
+    if (firstTomorrow) translateItem(firstTomorrow);
+
+    const stationNames = getStationNamesByCode(code);
+
     res.status(200).json({
       success: true,
       stationCode: code,
+      stationName: stationNames ? pickLocalizedName(stationNames, lang) : code,
+      stationNames: stationNames || undefined,
       currentTime: `${String(Math.floor(nowMinutes / 60)).padStart(2, "0")}:${String(nowMinutes % 60).padStart(2, "0")}`,
       arrivingSoon,
       atPlatform,
@@ -1039,6 +1017,669 @@ export const getStationBoard = async (req, res) => {
   } catch (error) {
     console.error("Get Station Board Error:", error);
     res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const shareStationPage = async (req, res) => {
+  try {
+    const { code } = req.params;
+    if (!code) {
+      return res.status(400).send("Station code is required");
+    }
+    const codeUpper = code.toUpperCase().trim();
+    const stationNames = getStationNamesByCode(codeUpper);
+    const name = stationNames ? (stationNames.english || codeUpper) : codeUpper;
+
+    const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Safar Slot - \${name} (\${codeUpper})</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      background-color: #F8FAFC;
+      color: #0F172A;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      box-sizing: border-box;
+      padding: 20px;
+    }
+    .card {
+      background: white;
+      border-radius: 24px;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.05);
+      width: 100%;
+      max-width: 400px;
+      overflow: hidden;
+      text-align: center;
+      border: 1px solid #E2E8F0;
+    }
+    .header {
+      background: linear-gradient(135deg, #FF671F 0%, #FF8F56 100%);
+      color: white;
+      padding: 40px 20px;
+      position: relative;
+    }
+    .app-logo {
+      width: 64px;
+      height: 64px;
+      border-radius: 16px;
+      background: white;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      margin-bottom: 16px;
+      font-weight: 800;
+      color: #FF671F;
+      font-size: 28px;
+      letter-spacing: -1px;
+    }
+    .station-name {
+      font-size: 24px;
+      font-weight: 800;
+      margin: 10px 0 6px 0;
+      letter-spacing: -0.5px;
+    }
+    .station-code {
+      font-size: 13px;
+      font-weight: bold;
+      background: rgba(255,255,255,0.25);
+      padding: 5px 16px;
+      border-radius: 20px;
+      display: inline-block;
+      letter-spacing: 0.5px;
+    }
+    .content {
+      padding: 30px 24px;
+    }
+    .info {
+      margin-bottom: 30px;
+      font-size: 15px;
+      color: #475569;
+      line-height: 1.6;
+    }
+    .btn {
+      background-color: #046A38;
+      color: white;
+      border: none;
+      padding: 16px 24px;
+      font-size: 16px;
+      font-weight: bold;
+      border-radius: 16px;
+      cursor: pointer;
+      text-decoration: none;
+      display: block;
+      margin: 0 auto;
+      width: 90%;
+      box-sizing: border-box;
+      transition: all 0.2s;
+      box-shadow: 0 4px 12px rgba(4, 106, 56, 0.25);
+    }
+    .btn:hover {
+      background-color: #03532C;
+      transform: translateY(-1px);
+    }
+    .btn-secondary {
+      background-color: transparent;
+      color: #64748B;
+      border: 1px solid #CBD5E1;
+      margin-top: 14px;
+      box-shadow: none;
+    }
+    .btn-secondary:hover {
+      background-color: #F8FAFC;
+      transform: translateY(-1px);
+    }
+    .footer {
+      margin-top: 30px;
+      font-size: 12px;
+      color: #94A3B8;
+      font-weight: 500;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="header">
+      <div class="app-logo">SS</div>
+      <div class="station-name">\${name}</div>
+      <div class="station-code">\${codeUpper}</div>
+    </div>
+    <div class="content">
+      <div class="info">
+        Explore live train status, platforms, timetables, and available facilities for <strong>\${name} (\${codeUpper})</strong>.
+        <br><br>
+        Open directly in <strong>Safar Slot</strong> app or install from Google Play Store.
+      </div>
+      <a href="safarslot://station/\${codeUpper}" id="open-btn" class="btn">Open in Safar Slot</a>
+      <a href="https://play.google.com/store/apps/details?id=com.omawchar.safarslot" class="btn btn-secondary">Install App</a>
+    </div>
+  </div>
+  <div class="footer">Safar Slot · Indian Railways Assistant</div>
+
+  <script>
+    const appUrl = "safarslot://station/\${codeUpper}";
+    const storeUrl = "https://play.google.com/store/apps/details?id=com.omawchar.safarslot";
+    
+    // Attempt redirect
+    window.location.href = appUrl;
+    
+    // Fallback to store if page still visible
+    setTimeout(function() {
+      if (document.webkitHidden || document.hidden) {
+        return; // App opened successfully
+      }
+      window.location.href = storeUrl;
+    }, 2500);
+  </script>
+</body>
+</html>
+    `;
+
+    res.send(html);
+  } catch (error) {
+    res.status(500).send("Internal Server Error");
+  }
+};
+
+export const shareTrainPage = async (req, res) => {
+  try {
+    const { trainNo } = req.params;
+    if (!trainNo) {
+      return res.status(400).send("Train number is required");
+    }
+    const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Safar Slot - Live Train Status - \${trainNo}</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      background-color: #F8FAFC;
+      color: #0F172A;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      box-sizing: border-box;
+      padding: 20px;
+    }
+    .card {
+      background: white;
+      border-radius: 24px;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.05);
+      width: 100%;
+      max-width: 400px;
+      overflow: hidden;
+      text-align: center;
+      border: 1px solid #E2E8F0;
+    }
+    .header {
+      background: linear-gradient(135deg, #FF671F 0%, #FF8F56 100%);
+      color: white;
+      padding: 40px 20px;
+      position: relative;
+    }
+    .app-logo {
+      width: 64px;
+      height: 64px;
+      border-radius: 16px;
+      background: white;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      margin-bottom: 16px;
+      font-weight: 800;
+      color: #FF671F;
+      font-size: 28px;
+      letter-spacing: -1px;
+    }
+    .station-name {
+      font-size: 24px;
+      font-weight: 800;
+      margin: 10px 0 6px 0;
+      letter-spacing: -0.5px;
+    }
+    .station-code {
+      font-size: 13px;
+      font-weight: bold;
+      background: rgba(255,255,255,0.25);
+      padding: 5px 16px;
+      border-radius: 20px;
+      display: inline-block;
+      letter-spacing: 0.5px;
+    }
+    .content {
+      padding: 30px 24px;
+    }
+    .info {
+      margin-bottom: 30px;
+      font-size: 15px;
+      color: #475569;
+      line-height: 1.6;
+    }
+    .btn {
+      background-color: #046A38;
+      color: white;
+      border: none;
+      padding: 16px 24px;
+      font-size: 16px;
+      font-weight: bold;
+      border-radius: 16px;
+      cursor: pointer;
+      text-decoration: none;
+      display: block;
+      margin: 0 auto;
+      width: 90%;
+      box-sizing: border-box;
+      transition: all 0.2s;
+      box-shadow: 0 4px 12px rgba(4, 106, 56, 0.25);
+    }
+    .btn:hover {
+      background-color: #03532C;
+      transform: translateY(-1px);
+    }
+    .btn-secondary {
+      background-color: transparent;
+      color: #64748B;
+      border: 1px solid #CBD5E1;
+      margin-top: 14px;
+      box-shadow: none;
+    }
+    .btn-secondary:hover {
+      background-color: #F8FAFC;
+      transform: translateY(-1px);
+    }
+    .footer {
+      margin-top: 30px;
+      font-size: 12px;
+      color: #94A3B8;
+      font-weight: 500;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="header">
+      <div class="app-logo">SS</div>
+      <div class="station-name">Live Train Status</div>
+      <div class="station-code">Train \${trainNo}</div>
+    </div>
+    <div class="content">
+      <div class="info">
+        Track train <strong>\${trainNo}</strong> live, view delay status, schedules, and platform locations.
+        <br><br>
+        Open directly in <strong>Safar Slot</strong> app or install from Google Play Store.
+      </div>
+      <a href="safarslot://train/\${trainNo}" id="open-btn" class="btn">Open in Safar Slot</a>
+      <a href="https://play.google.com/store/apps/details?id=com.omawchar.safarslot" class="btn btn-secondary">Install App</a>
+    </div>
+  </div>
+  <div class="footer">Safar Slot · Indian Railways Assistant</div>
+
+  <script>
+    const appUrl = "safarslot://train/\${trainNo}";
+    const storeUrl = "https://play.google.com/store/apps/details?id=com.omawchar.safarslot";
+    
+    window.location.href = appUrl;
+    
+    setTimeout(function() {
+      if (document.webkitHidden || document.hidden) {
+        return;
+      }
+      window.location.href = storeUrl;
+    }, 2500);
+  </script>
+</body>
+</html>
+    `;
+    res.send(html);
+  } catch (error) {
+    res.status(500).send("Internal Server Error");
+  }
+};
+
+export const sharePnrPage = async (req, res) => {
+  try {
+    const { pnrNo } = req.params;
+    if (!pnrNo) {
+      return res.status(400).send("PNR number is required");
+    }
+    const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Safar Slot - PNR Status - \${pnrNo}</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      background-color: #F8FAFC;
+      color: #0F172A;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      box-sizing: border-box;
+      padding: 20px;
+    }
+    .card {
+      background: white;
+      border-radius: 24px;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.05);
+      width: 100%;
+      max-width: 400px;
+      overflow: hidden;
+      text-align: center;
+      border: 1px solid #E2E8F0;
+    }
+    .header {
+      background: linear-gradient(135deg, #FF671F 0%, #FF8F56 100%);
+      color: white;
+      padding: 40px 20px;
+      position: relative;
+    }
+    .app-logo {
+      width: 64px;
+      height: 64px;
+      border-radius: 16px;
+      background: white;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      margin-bottom: 16px;
+      font-weight: 800;
+      color: #FF671F;
+      font-size: 28px;
+      letter-spacing: -1px;
+    }
+    .station-name {
+      font-size: 24px;
+      font-weight: 800;
+      margin: 10px 0 6px 0;
+      letter-spacing: -0.5px;
+    }
+    .station-code {
+      font-size: 13px;
+      font-weight: bold;
+      background: rgba(255,255,255,0.25);
+      padding: 5px 16px;
+      border-radius: 20px;
+      display: inline-block;
+      letter-spacing: 0.5px;
+    }
+    .content {
+      padding: 30px 24px;
+    }
+    .info {
+      margin-bottom: 30px;
+      font-size: 15px;
+      color: #475569;
+      line-height: 1.6;
+    }
+    .btn {
+      background-color: #046A38;
+      color: white;
+      border: none;
+      padding: 16px 24px;
+      font-size: 16px;
+      font-weight: bold;
+      border-radius: 16px;
+      cursor: pointer;
+      text-decoration: none;
+      display: block;
+      margin: 0 auto;
+      width: 90%;
+      box-sizing: border-box;
+      transition: all 0.2s;
+      box-shadow: 0 4px 12px rgba(4, 106, 56, 0.25);
+    }
+    .btn:hover {
+      background-color: #03532C;
+      transform: translateY(-1px);
+    }
+    .btn-secondary {
+      background-color: transparent;
+      color: #64748B;
+      border: 1px solid #CBD5E1;
+      margin-top: 14px;
+      box-shadow: none;
+    }
+    .btn-secondary:hover {
+      background-color: #F8FAFC;
+      transform: translateY(-1px);
+    }
+    .footer {
+      margin-top: 30px;
+      font-size: 12px;
+      color: #94A3B8;
+      font-weight: 500;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="header">
+      <div class="app-logo">SS</div>
+      <div class="station-name">PNR Status Details</div>
+      <div class="station-code">PNR \${pnrNo}</div>
+    </div>
+    <div class="content">
+      <div class="info">
+        Check booking status, coach layout, and seat status for PNR <strong>\${pnrNo}</strong>.
+        <br><br>
+        Open directly in <strong>Safar Slot</strong> app or install from Google Play Store.
+      </div>
+      <a href="safarslot://pnr/\${pnrNo}" id="open-btn" class="btn">Open in Safar Slot</a>
+      <a href="https://play.google.com/store/apps/details?id=com.omawchar.safarslot" class="btn btn-secondary">Install App</a>
+    </div>
+  </div>
+  <div class="footer">Safar Slot · Indian Railways Assistant</div>
+
+  <script>
+    const appUrl = "safarslot://pnr/\${pnrNo}";
+    const storeUrl = "https://play.google.com/store/apps/details?id=com.omawchar.safarslot";
+    
+    window.location.href = appUrl;
+    
+    setTimeout(function() {
+      if (document.webkitHidden || document.hidden) {
+        return;
+      }
+      window.location.href = storeUrl;
+    }, 2500);
+  </script>
+</body>
+</html>
+    `;
+    res.send(html);
+  } catch (error) {
+    res.status(500).send("Internal Server Error");
+  }
+};
+
+export const shareCoachPage = async (req, res) => {
+  try {
+    const { trainNo } = req.params;
+    if (!trainNo) {
+      return res.status(400).send("Train number is required");
+    }
+    const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Safar Slot - Coach Position - \${trainNo}</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      background-color: #F8FAFC;
+      color: #0F172A;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      box-sizing: border-box;
+      padding: 20px;
+    }
+    .card {
+      background: white;
+      border-radius: 24px;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.05);
+      width: 100%;
+      max-width: 400px;
+      overflow: hidden;
+      text-align: center;
+      border: 1px solid #E2E8F0;
+    }
+    .header {
+      background: linear-gradient(135deg, #FF671F 0%, #FF8F56 100%);
+      color: white;
+      padding: 40px 20px;
+      position: relative;
+    }
+    .app-logo {
+      width: 64px;
+      height: 64px;
+      border-radius: 16px;
+      background: white;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      margin-bottom: 16px;
+      font-weight: 800;
+      color: #FF671F;
+      font-size: 28px;
+      letter-spacing: -1px;
+    }
+    .station-name {
+      font-size: 24px;
+      font-weight: 800;
+      margin: 10px 0 6px 0;
+      letter-spacing: -0.5px;
+    }
+    .station-code {
+      font-size: 13px;
+      font-weight: bold;
+      background: rgba(255,255,255,0.25);
+      padding: 5px 16px;
+      border-radius: 20px;
+      display: inline-block;
+      letter-spacing: 0.5px;
+    }
+    .content {
+      padding: 30px 24px;
+    }
+    .info {
+      margin-bottom: 30px;
+      font-size: 15px;
+      color: #475569;
+      line-height: 1.6;
+    }
+    .btn {
+      background-color: #046A38;
+      color: white;
+      border: none;
+      padding: 16px 24px;
+      font-size: 16px;
+      font-weight: bold;
+      border-radius: 16px;
+      cursor: pointer;
+      text-decoration: none;
+      display: block;
+      margin: 0 auto;
+      width: 90%;
+      box-sizing: border-box;
+      transition: all 0.2s;
+      box-shadow: 0 4px 12px rgba(4, 106, 56, 0.25);
+    }
+    .btn:hover {
+      background-color: #03532C;
+      transform: translateY(-1px);
+    }
+    .btn-secondary {
+      background-color: transparent;
+      color: #64748B;
+      border: 1px solid #CBD5E1;
+      margin-top: 14px;
+      box-shadow: none;
+    }
+    .btn-secondary:hover {
+      background-color: #F8FAFC;
+      transform: translateY(-1px);
+    }
+    .footer {
+      margin-top: 30px;
+      font-size: 12px;
+      color: #94A3B8;
+      font-weight: 500;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="header">
+      <div class="app-logo">SS</div>
+      <div class="station-name">Coach Position Details</div>
+      <div class="station-code">Train \${trainNo}</div>
+    </div>
+    <div class="content">
+      <div class="info">
+        View coach layouts, seat classifications, and layout diagrams for train <strong>\${trainNo}</strong>.
+        <br><br>
+        Open directly in <strong>Safar Slot</strong> app or install from Google Play Store.
+      </div>
+      <a href="safarslot://coach/\${trainNo}" id="open-btn" class="btn">Open in Safar Slot</a>
+      <a href="https://play.google.com/store/apps/details?id=com.omawchar.safarslot" class="btn btn-secondary">Install App</a>
+    </div>
+  </div>
+  <div class="footer">Safar Slot · Indian Railways Assistant</div>
+
+  <script>
+    const appUrl = "safarslot://coach/\${trainNo}";
+    const storeUrl = "https://play.google.com/store/apps/details?id=com.omawchar.safarslot";
+    
+    window.location.href = appUrl;
+    
+    setTimeout(function() {
+      if (document.webkitHidden || document.hidden) {
+        return;
+      }
+      window.location.href = storeUrl;
+    }, 2500);
+  </script>
+</body>
+</html>
+    `;
+    res.send(html);
+  } catch (error) {
+    res.status(500).send("Internal Server Error");
   }
 };
 

@@ -6,88 +6,14 @@ import axios from "axios";
 import dotenv from "dotenv";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import fs from "fs";
-import path from "path";
-import { fileURLToPath } from "url";
+import {
+  localStations,
+  getStationNamesByCode,
+  getLocalizedNameByCode,
+  pickLocalizedName,
+} from "../utils/localization.js";
 
 dotenv.config();
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-// Preload 8,990 Indian Railway stations into memory (0 ms latency for lookups)
-const stationsDataPath = path.join(__dirname, "../data/stations.json");
-const rawData = JSON.parse(fs.readFileSync(stationsDataPath, "utf8"));
-
-const normalizeStations = (data) => {
-  let features = Array.isArray(data) ? data : (data.features || []);
-  return features.map(station => {
-    if (station.properties && station.properties.code) {
-      return station;
-    }
-    const code = station['properties/code'] || "";
-    const name = station['properties/name'] || "";
-    const zone = station['properties/zone'] || "";
-    const state = station['properties/state'] || "";
-    const address = station['properties/address'] || "";
-    
-    let coordinates = null;
-    if (station['geometry/coordinates/0'] !== undefined && station['geometry/coordinates/1'] !== undefined) {
-      const lng = parseFloat(station['geometry/coordinates/0'] || 0);
-      const lat = parseFloat(station['geometry/coordinates/1'] || 0);
-      coordinates = [lng, lat];
-    } else if (station.geometry && station.geometry.coordinates) {
-      coordinates = station.geometry.coordinates;
-    }
-
-    return {
-      ...station,
-      properties: {
-        code,
-        name,
-        zone,
-        state,
-        address
-      },
-      geometry: {
-        type: station['geometry/type'] || "Point",
-        coordinates: coordinates || [0, 0]
-      }
-    };
-  });
-};
-
-const localStations = normalizeStations(rawData);
-
-const getLocalizedStationName = (station, lang) => {
-  if (!station) return "Unknown Station";
-  if (!lang) return station.properties?.name || "Unknown Station";
-  
-  const cleanLang = lang.split('-')[0].toLowerCase();
-  const nameMap = {
-    'hi': station.properties_name_hi,
-    'ma': station.properties_name_ma,
-    'ta': station.properties_name_ta,
-    'te': station.properties_name_te,
-    'tel': station.properties_name_te,
-    'kn': station.properties_name_kn,
-    'ka': station.properties_name_kn,
-    'ml': station.properties_name_ml,
-    'mal': station.properties_name_ml,
-    'bn': station.properties_name_bn,
-    'bengali': station.properties_name_bn,
-    'pa': station.properties_name_pa,
-    'panj': station.properties_name_pa,
-    'or': station.properties_name_or,
-    'odia': station.properties_name_or,
-  };
-  
-  const val = nameMap[cleanLang];
-  if (val && val.trim() !== "" && val !== station.properties?.code) {
-    return val;
-  }
-  return station.properties?.name || "Unknown Station";
-};
 
 const locationCache = new Map(); // In-memory Redis-like cache
 
@@ -458,15 +384,21 @@ export const NearbyStation = async (req,res)=>{
         const distanceKm = R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
 
         if (distanceKm <= maxDistanceKm) {
-          const localizedName = getLocalizedStationName(station, req.body.lang || req.query.lang || req.headers['accept-language']);
+          const lang = req.body.lang || req.query.lang || req.headers['accept-language'];
+          const stationCode = station.properties?.code || "N/A";
+          const stationNames = getStationNamesByCode(stationCode);
+          const localizedName = stationNames
+            ? pickLocalizedName(stationNames, lang)
+            : (station.properties?.name || "Unknown Station");
           stationList.push({
             name: localizedName,
             coordinates: [stnLon, stnLat],
             distance: Math.round(distanceKm * 1000), // meters
             
             // Legacy properties to ensure Flutter app compatibility
-            stationCode: station.properties?.code || "N/A", 
+            stationCode,
             stationName: localizedName,
+            stationNames: stationNames || undefined,
             majorStn: true, // All stations in this JSON are IRCTC stations
             latitude: stnLat,
             longitude: stnLon,
@@ -626,7 +558,27 @@ export const getSavedRoutes = async (req, res) => {
       return res.status(404).json({ success: false, message: "User not found" });
     }
 
-    const routes = user.savedRoutes || [];
+    const lang = req.query.lang || (req.body && req.body.lang) || req.headers['accept-language'];
+    const localizeRouteString = (routeStr, langCode) => {
+      if (!routeStr) return routeStr;
+      const match = /\(([A-Z0-9]+)\)/.exec(routeStr);
+      if (match) {
+        const code = match[1];
+        const locName = getLocalizedNameByCode(code, langCode);
+        if (locName) {
+          return `${locName} (${code})`;
+        }
+      }
+      return routeStr;
+    };
+
+    const routes = (user.savedRoutes || []).map(r => {
+      const routeObj = r.toObject ? r.toObject() : r;
+      routeObj.source = localizeRouteString(routeObj.source, lang);
+      routeObj.destination = localizeRouteString(routeObj.destination, lang);
+      return routeObj;
+    });
+
     return res.status(200).json({ success: true, data: routes });
   } catch (error) {
     console.log("Get Saved Routes Error", error);
@@ -769,7 +721,20 @@ export const getFavoriteStations = async (req, res) => {
       return res.status(404).json({ success: false, message: "User not found" });
     }
 
-    const favorites = user.favoriteStations || [];
+    const lang = req.query.lang || (req.body && req.body.lang) || req.headers['accept-language'];
+    const favorites = (user.favoriteStations || []).map(station => {
+      const stationObj = station.toObject ? station.toObject() : station;
+      if (stationObj.code) {
+        const names = getStationNamesByCode(stationObj.code);
+        if (names) {
+          stationObj.stationNames = names;
+          stationObj.name = pickLocalizedName(names, lang);
+          stationObj.stationName = stationObj.name;
+        }
+      }
+      return stationObj;
+    });
+
     return res.status(200).json({ success: true, data: favorites });
   } catch (error) {
     console.log("Get Favorite Stations Error", error);
@@ -829,7 +794,25 @@ export const getRecentTrainSearches = async (req, res) => {
     if (!user) {
       return res.status(404).json({ success: false, message: "User not found" });
     }
-    const recent = user.recentTrainSearches || [];
+    const lang = req.query.lang || (req.body && req.body.lang) || req.headers['accept-language'];
+    const recent = (user.recentTrainSearches || []).map(s => {
+      const searchObj = s.toObject ? s.toObject() : s;
+      if (searchObj.fromCode) {
+        const names = getStationNamesByCode(searchObj.fromCode);
+        if (names) {
+          searchObj.fromNames = names;
+          searchObj.fromName = pickLocalizedName(names, lang);
+        }
+      }
+      if (searchObj.toCode) {
+        const names = getStationNamesByCode(searchObj.toCode);
+        if (names) {
+          searchObj.toNames = names;
+          searchObj.toName = pickLocalizedName(names, lang);
+        }
+      }
+      return searchObj;
+    });
     return res.status(200).json({ success: true, data: recent });
   } catch (error) {
     console.log("Get Recent Train Searches Error", error);
@@ -885,7 +868,18 @@ export const getRecentStationSearches = async (req, res) => {
     if (!user) {
       return res.status(404).json({ success: false, message: "User not found" });
     }
-    const recent = user.recentStationSearches || [];
+    const lang = req.query.lang || (req.body && req.body.lang) || req.headers['accept-language'];
+    const recent = (user.recentStationSearches || []).map(s => {
+      const searchObj = s.toObject ? s.toObject() : s;
+      if (searchObj.stationCode) {
+        const names = getStationNamesByCode(searchObj.stationCode);
+        if (names) {
+          searchObj.stationNames = names;
+          searchObj.stationName = pickLocalizedName(names, lang);
+        }
+      }
+      return searchObj;
+    });
     return res.status(200).json({ success: true, data: recent });
   } catch (error) {
     console.log("Get Recent Station Searches Error", error);
@@ -897,4 +891,4 @@ export const getRecentStationSearches = async (req, res) => {
 
 
 
-
+
