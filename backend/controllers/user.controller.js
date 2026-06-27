@@ -17,8 +17,77 @@ const __dirname = path.dirname(__filename);
 
 // Preload 8,990 Indian Railway stations into memory (0 ms latency for lookups)
 const stationsDataPath = path.join(__dirname, "../data/stations.json");
-const localStationsData = JSON.parse(fs.readFileSync(stationsDataPath, "utf8"));
-const localStations = localStationsData.features;
+const rawData = JSON.parse(fs.readFileSync(stationsDataPath, "utf8"));
+
+const normalizeStations = (data) => {
+  let features = Array.isArray(data) ? data : (data.features || []);
+  return features.map(station => {
+    if (station.properties && station.properties.code) {
+      return station;
+    }
+    const code = station['properties/code'] || "";
+    const name = station['properties/name'] || "";
+    const zone = station['properties/zone'] || "";
+    const state = station['properties/state'] || "";
+    const address = station['properties/address'] || "";
+    
+    let coordinates = null;
+    if (station['geometry/coordinates/0'] !== undefined && station['geometry/coordinates/1'] !== undefined) {
+      const lng = parseFloat(station['geometry/coordinates/0'] || 0);
+      const lat = parseFloat(station['geometry/coordinates/1'] || 0);
+      coordinates = [lng, lat];
+    } else if (station.geometry && station.geometry.coordinates) {
+      coordinates = station.geometry.coordinates;
+    }
+
+    return {
+      ...station,
+      properties: {
+        code,
+        name,
+        zone,
+        state,
+        address
+      },
+      geometry: {
+        type: station['geometry/type'] || "Point",
+        coordinates: coordinates || [0, 0]
+      }
+    };
+  });
+};
+
+const localStations = normalizeStations(rawData);
+
+const getLocalizedStationName = (station, lang) => {
+  if (!station) return "Unknown Station";
+  if (!lang) return station.properties?.name || "Unknown Station";
+  
+  const cleanLang = lang.split('-')[0].toLowerCase();
+  const nameMap = {
+    'hi': station.properties_name_hi,
+    'ma': station.properties_name_ma,
+    'ta': station.properties_name_ta,
+    'te': station.properties_name_te,
+    'tel': station.properties_name_te,
+    'kn': station.properties_name_kn,
+    'ka': station.properties_name_kn,
+    'ml': station.properties_name_ml,
+    'mal': station.properties_name_ml,
+    'bn': station.properties_name_bn,
+    'bengali': station.properties_name_bn,
+    'pa': station.properties_name_pa,
+    'panj': station.properties_name_pa,
+    'or': station.properties_name_or,
+    'odia': station.properties_name_or,
+  };
+  
+  const val = nameMap[cleanLang];
+  if (val && val.trim() !== "" && val !== station.properties?.code) {
+    return val;
+  }
+  return station.properties?.name || "Unknown Station";
+};
 
 const locationCache = new Map(); // In-memory Redis-like cache
 
@@ -389,14 +458,15 @@ export const NearbyStation = async (req,res)=>{
         const distanceKm = R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
 
         if (distanceKm <= maxDistanceKm) {
+          const localizedName = getLocalizedStationName(station, req.body.lang || req.query.lang || req.headers['accept-language']);
           stationList.push({
-            name: station.properties?.name || "Unknown Station",
+            name: localizedName,
             coordinates: [stnLon, stnLat],
             distance: Math.round(distanceKm * 1000), // meters
             
             // Legacy properties to ensure Flutter app compatibility
             stationCode: station.properties?.code || "N/A", 
-            stationName: station.properties?.name || "Unknown Station",
+            stationName: localizedName,
             majorStn: true, // All stations in this JSON are IRCTC stations
             latitude: stnLat,
             longitude: stnLon,

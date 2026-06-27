@@ -10,8 +10,77 @@ const __dirname = path.dirname(__filename);
 
 
 const stationsDataPath = path.join(__dirname, "../data/stations.json");
-const localStationsData = JSON.parse(fs.readFileSync(stationsDataPath, "utf8"));
-const localStations = localStationsData.features;
+const rawData = JSON.parse(fs.readFileSync(stationsDataPath, "utf8"));
+
+const normalizeStations = (data) => {
+  let features = Array.isArray(data) ? data : (data.features || []);
+  return features.map(station => {
+    if (station.properties && station.properties.code) {
+      return station;
+    }
+    const code = station['properties/code'] || "";
+    const name = station['properties/name'] || "";
+    const zone = station['properties/zone'] || "";
+    const state = station['properties/state'] || "";
+    const address = station['properties/address'] || "";
+    
+    let coordinates = null;
+    if (station['geometry/coordinates/0'] !== undefined && station['geometry/coordinates/1'] !== undefined) {
+      const lng = parseFloat(station['geometry/coordinates/0'] || 0);
+      const lat = parseFloat(station['geometry/coordinates/1'] || 0);
+      coordinates = [lng, lat];
+    } else if (station.geometry && station.geometry.coordinates) {
+      coordinates = station.geometry.coordinates;
+    }
+
+    return {
+      ...station,
+      properties: {
+        code,
+        name,
+        zone,
+        state,
+        address
+      },
+      geometry: {
+        type: station['geometry/type'] || "Point",
+        coordinates: coordinates || [0, 0]
+      }
+    };
+  });
+};
+
+const localStations = normalizeStations(rawData);
+
+const getLocalizedStationName = (station, lang) => {
+  if (!station) return "Unknown Station";
+  if (!lang) return station.properties?.name || "Unknown Station";
+  
+  const cleanLang = lang.split('-')[0].toLowerCase();
+  const nameMap = {
+    'hi': station.properties_name_hi,
+    'ma': station.properties_name_ma,
+    'ta': station.properties_name_ta,
+    'te': station.properties_name_te,
+    'tel': station.properties_name_te,
+    'kn': station.properties_name_kn,
+    'ka': station.properties_name_kn,
+    'ml': station.properties_name_ml,
+    'mal': station.properties_name_ml,
+    'bn': station.properties_name_bn,
+    'bengali': station.properties_name_bn,
+    'pa': station.properties_name_pa,
+    'panj': station.properties_name_pa,
+    'or': station.properties_name_or,
+    'odia': station.properties_name_or,
+  };
+  
+  const val = nameMap[cleanLang];
+  if (val && val.trim() !== "" && val !== station.properties?.code) {
+    return val;
+  }
+  return station.properties?.name || "Unknown Station";
+};
 
 const stationsMap = {};
 localStations.forEach((station) => {
@@ -367,13 +436,23 @@ export const searchStationsIndiarailinfo = async (req, res) => {
       }
     }
 
-    const parsedStations = m1List.map(item => ({
-      id: item.id,
-      code: item.code,
-      name: item.name,
-      division: item.division,
-      details: m2List[item.rowNum] || ""
-    }));
+    const lang = req.query.lang || req.body.lang || req.headers['accept-language'];
+    const parsedStations = m1List.map(item => {
+      let stationName = item.name;
+      if (item.code) {
+        const matchedStn = localStations.find(s => s.properties?.code?.toUpperCase() === item.code.toUpperCase());
+        if (matchedStn) {
+          stationName = getLocalizedStationName(matchedStn, lang);
+        }
+      }
+      return {
+        id: item.id,
+        code: item.code,
+        name: stationName,
+        division: item.division,
+        details: m2List[item.rowNum] || ""
+      };
+    });
 
     res.status(200).json({
       success: true,
@@ -575,6 +654,14 @@ export const getStationDetailsIndiarailinfo = async (req, res) => {
       if (parts.length >= 2) {
         code = parts[0].trim();
         name = parts[1].replace(/\(\d+\s*PFs?\)/gi, '').trim();
+      }
+    }
+
+    if (code) {
+      const matchedStn = localStations.find(s => s.properties?.code?.toUpperCase() === code.toUpperCase());
+      if (matchedStn) {
+        const lang = req.query.lang || req.body.lang || req.headers['accept-language'];
+        name = getLocalizedStationName(matchedStn, lang);
       }
     }
 
