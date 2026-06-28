@@ -102,19 +102,10 @@ export async function runWarmCache() {
     failed++;
   }
 
-  // 2 — Popular live trains in batches
-  await runInBatches(POPULAR_TRAINS, BATCH_SIZE, async (trainNo) => {
-    try {
-      await warmLiveTrain(trainNo);
-      warmed++;
-      console.log(`[WarmCache] Train ${trainNo} cached.`);
-    } catch (err) {
-      failed++;
-      // Log a clean message — don't crash
-      const reason = err.code === "ECONNABORTED" ? "timeout" : err.message;
-      console.warn(`[WarmCache] Train ${trainNo} skipped: ${reason}`);
-    }
-  });
+  // 2 — Popular live trains skipped at startup:
+  //      redbus.in blocks requests from Render server IPs, causing timeouts.
+  //      Live train data is cached on-demand when real users fetch it instead.
+  console.log("[WarmCache] Live train pre-warm skipped (cached on-demand).");
 
   // 3 — Station board stubs (lightweight, no external call)
   for (const code of POPULAR_STATIONS) {

@@ -12,6 +12,7 @@ import {
   getStationNamesByCode,
   getLocalizedNameByCode,
   pickLocalizedName,
+  applyTrainNames,
 } from "../utils/localization.js";
 
 dotenv.config();
@@ -441,7 +442,7 @@ export const NearbyStation = async (req,res)=>{
 export const updateUserLanguage = async (req, res) => {
   try {
     const { userId, language } = req.body;
-    const user = await User.findByIdAndUpdate(userId, { language }, { new: true });
+    const user = await User.findByIdAndUpdate(userId, { language }, { returnDocument: 'after' });
     if (!user) {
       return res.status(404).json({ success: false, message: "User Not Found" });
     }
