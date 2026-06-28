@@ -12,7 +12,10 @@ import {
   enrichPnrData,
   enrichLiveTrainStatus,
   enrichStationBoardItem,
+  localStations,
 } from "../utils/localization.js";
+import { cacheKey, TTL, respondWithCache, sendJsonWithETag } from "../utils/cache.js";
+import { invalidateTrainCaches } from "../utils/cacheInvalidation.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -30,38 +33,45 @@ export const getPNR = async (req, res) => {
                 message: "Please Provide Correct 10-Digit PNR",
             });
         }
-        
-        const URL = "https://www.redbus.in/rails/api/getPnrToolKitData";
-        const response = await axios.post(URL, {
-            mobile: "",
-            pnr: pnr.toString()
-        }, {
-            headers: {
-                "Content-Type": "application/json",
-                "accept": "application/json, text/plain, */*",
-                "accept-language": "en-US,en;q=0.9",
-                "referer": "https://www.redbus.in/ryde/pnr",
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            }
-        });
-        
-        const pnrData = response.data;
-        
-        // If there's an error message or errorcode in response
-        if (pnrData.errorcode && pnrData.errorcode !== "0") {
-            return res.status(200).json({
-                success: false,
-                message: pnrData.errormsg || pnrData.detailedmsg || "PNR Number doesn't exist",
-                data: pnrData
-            });
-        }
 
-        enrichPnrData(pnrData, getRequestLang(req));
-        
-        res.status(200).json({
-            success: true,
-            message: "PNR Status Fetched Successfully",
-            data: pnrData
+        const lang = getRequestLang(req) || "en";
+        const key = cacheKey("pnr", pnr, lang);
+
+        return respondWithCache(req, res, {
+            key,
+            ttl: TTL.PNR,
+            shouldCache: (body) => body?.success === true,
+            fetchFn: async () => {
+                const URL = "https://www.redbus.in/rails/api/getPnrToolKitData";
+                const response = await axios.post(URL, {
+                    mobile: "",
+                    pnr: pnr.toString()
+                }, {
+                    headers: {
+                        "Content-Type": "application/json",
+                        "accept": "application/json, text/plain, */*",
+                        "accept-language": "en-US,en;q=0.9",
+                        "referer": "https://www.redbus.in/ryde/pnr",
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                    }
+                });
+
+                const pnrData = response.data;
+                if (pnrData.errorcode && pnrData.errorcode !== "0") {
+                    return {
+                        success: false,
+                        message: pnrData.errormsg || pnrData.detailedmsg || "PNR Number doesn't exist",
+                        data: pnrData
+                    };
+                }
+
+                enrichPnrData(pnrData, lang);
+                return {
+                    success: true,
+                    message: "PNR Status Fetched Successfully",
+                    data: pnrData
+                };
+            },
         });
     } catch (error) {
         console.error("Get PNR Error", error.message);
@@ -75,19 +85,26 @@ export const stationsList = async (req,res)=>{
        if (!search) {
          return res.status(400).json({ success: false, message: "Search query is required" });
        }
-       const URL = `https://www.redbus.in/rails/api/solarSearch?search=${search}`;
-       const response = await axios.get(URL);
-       const resData = response.data.response;
-        if (resData && resData.docs) {
-          const lang = getRequestLang(req);
-          resData.docs = resData.docs.map((doc) => {
-            if (doc.stationCode) {
-              applyStationNames(doc, doc.stationCode, ["stationName"], lang);
-            }
-            return doc;
-          });
-        }
-       res.status(200).json({success:true,resData});
+       const lang = getRequestLang(req) || "en";
+       const key = cacheKey("trainlist", search.toLowerCase(), lang);
+       return respondWithCache(req, res, {
+         key,
+         ttl: TTL.STATION_LIST,
+         fetchFn: async () => {
+           const URL = `https://www.redbus.in/rails/api/solarSearch?search=${search}`;
+           const response = await axios.get(URL);
+           const resData = response.data.response;
+           if (resData && resData.docs) {
+             resData.docs = resData.docs.map((doc) => {
+               if (doc.stationCode) {
+                 applyStationNames(doc, doc.stationCode, ["stationName"], lang);
+               }
+               return doc;
+             });
+           }
+           return { success: true, resData };
+         },
+       });
   }catch(err){
     const apiError = err.response?.data || err.message;
     console.error("Station List Error", apiError);
@@ -103,26 +120,32 @@ export const getTrainNameCode = async (req,res)=>{
        if (!search) {
          return res.status(400).json({ success: false, message: "Search query is required" });
        }
-        const URL = `https://www.redbus.in/railways/api/SolrTrainSearch?search=${search}`
-
-        const response = await axios.get(URL);
-        const resData = response.data.response;
-        if (resData && resData.docs) {
-          const lang = getRequestLang(req);
-          resData.docs = resData.docs.map((doc) => {
-            if (doc.trainNo != null) {
-              applyTrainNames(doc, doc.trainNo, ["trainName"], lang);
+        const lang = getRequestLang(req) || "en";
+        const key = cacheKey("train", search.toLowerCase(), lang);
+        return respondWithCache(req, res, {
+          key,
+          ttl: TTL.STATION_LIST,
+          fetchFn: async () => {
+            const URL = `https://www.redbus.in/railways/api/SolrTrainSearch?search=${search}`;
+            const response = await axios.get(URL);
+            const resData = response.data.response;
+            if (resData && resData.docs) {
+              resData.docs = resData.docs.map((doc) => {
+                if (doc.trainNo != null) {
+                  applyTrainNames(doc, doc.trainNo, ["trainName"], lang);
+                }
+                if (doc.srcStationCode) {
+                  applyStationNames(doc, doc.srcStationCode, ["srcStationName"], lang);
+                }
+                if (doc.destStationCode) {
+                  applyStationNames(doc, doc.destStationCode, ["destStationName"], lang);
+                }
+                return doc;
+              });
             }
-            if (doc.srcStationCode) {
-              applyStationNames(doc, doc.srcStationCode, ["srcStationName"], lang);
-            }
-            if (doc.destStationCode) {
-              applyStationNames(doc, doc.destStationCode, ["destStationName"], lang);
-            }
-            return doc;
-          });
-        }
-        res.status(200).json({success:true,resData});
+            return { success: true, resData };
+          },
+        });
 
     }catch(err){
         res.status(500).json({success:false,message:err.message})
@@ -138,13 +161,19 @@ export const liveTrainStatus = async (req,res)=>{
          return res.status(400).json({ success: false, message: "trainNo  is required" });
        }
 
-    const URL = `https://www.redbus.in/railways/api/getLtsDetails?trainNo=${trainNo}`;
-    const response = await axios.get(URL);
-    const resData = response.data;
-    
-    enrichLiveTrainStatus(resData, getRequestLang(req));
-
-    res.status(200).json({success:true,resData});
+    const lang = getRequestLang(req) || "en";
+    const key = cacheKey("live", trainNo, lang);
+    return respondWithCache(req, res, {
+      key,
+      ttl: TTL.LIVE_TRAIN,
+      fetchFn: async () => {
+        const URL = `https://www.redbus.in/railways/api/getLtsDetails?trainNo=${trainNo}`;
+        const response = await axios.get(URL);
+        const resData = response.data;
+        enrichLiveTrainStatus(resData, lang);
+        return { success: true, resData };
+      },
+    });
    } catch (error) {
             res.status(500).json({success:false,message:error.message})
    }
@@ -164,10 +193,16 @@ export const CoachPosition = async (req, res) => {
       if (!trainNo) {
         return res.status(400).json({ success: false, message: 'trainNo is required' });
       }
-      const URL = `https://www.redbus.in/railways/api/getCoachPosition?trainNo=${trainNo}&stn=${station}`;
-      const response = await axios.get(URL);
-      const resData = response.data;
-      res.status(200).json({ success: true, resData });
+      const key = cacheKey("coach", trainNo, station);
+      return respondWithCache(req, res, {
+        key,
+        ttl: TTL.COACH_POSITION,
+        fetchFn: async () => {
+          const URL = `https://www.redbus.in/railways/api/getCoachPosition?trainNo=${trainNo}&stn=${station}`;
+          const response = await axios.get(URL);
+          return { success: true, resData: response.data };
+        },
+      });
     } catch (error) {
       res.status(500).json({ success: false, message: error.message });
     }
@@ -200,6 +235,8 @@ export const reportTrain = async (req, res) => {
     });
 
     await newReport.save();
+
+    await invalidateTrainCaches(trainNo, req.body.stationCode || req.body.stn);
 
     res.status(201).json({ success: true, message: "Train report submitted successfully", data: newReport });
   } catch (error) {
@@ -308,6 +345,13 @@ const solveBrowserVerification = async (id, irisCookie) => {
 export const searchStationsIndiarailinfo = async (req, res) => {
   try {
     const search = req.params.search || req.query.search || 'n';
+    const key = cacheKey("station_search", search.toLowerCase());
+    const lang = getRequestLang(req);
+
+    return respondWithCache(req, res, {
+      key,
+      ttl: TTL.STATION_SEARCH,
+      fetchFn: async () => {
     const date = Date.now();
     const URL = `https://d.indiarailinfo.com/shtml/list.shtml?LappGetStationList/${encodeURIComponent(search)}/0/0/0?&date=${date}&seq=0`;
 
@@ -384,7 +428,6 @@ export const searchStationsIndiarailinfo = async (req, res) => {
       }
     }
 
-    const lang = getRequestLang(req);
     const parsedStations = m1List.map((item) => {
       let stationName = item.name;
       const names = getStationNamesByCode(item.code);
@@ -401,9 +444,11 @@ export const searchStationsIndiarailinfo = async (req, res) => {
       };
     });
 
-    res.status(200).json({
+    return {
       success: true,
       stations: parsedStations
+    };
+      },
     });
 
   } catch (error) {
@@ -470,6 +515,13 @@ export const getStationDetailsIndiarailinfo = async (req, res) => {
       return res.status(400).json({ success: false, message: "Station ID is required" });
     }
 
+    const lang = getRequestLang(req) || "en";
+    const key = cacheKey("station", id, lang);
+
+    return respondWithCache(req, res, {
+      key,
+      ttl: TTL.STATION_DETAILS,
+      fetchFn: async () => {
     const randomIris = generateIrisCookie();
     const irisKey = randomIris.substring(0, 16);
 
@@ -708,7 +760,7 @@ export const getStationDetailsIndiarailinfo = async (req, res) => {
       finalImages = finalImages.slice(0, 6);
     }
 
-    res.status(200).json({
+    return {
       success: true,
       station: {
         id: String(id),
@@ -736,6 +788,8 @@ export const getStationDetailsIndiarailinfo = async (req, res) => {
         images: finalImages,
         rawDescriptionHtml: sinfo.StnDesc
       }
+    };
+      },
     });
 
   } catch (error) {
@@ -751,6 +805,13 @@ export const searchTrainsBetweenStations = async (req, res) => {
       return res.status(400).json({ success: false, message: "Source, destination, and date of journey are required" });
     }
 
+    const lang = getRequestLang(req) || "en";
+    const key = cacheKey("between", src.toUpperCase(), dst.toUpperCase(), doj, lang);
+
+    return respondWithCache(req, res, {
+      key,
+      ttl: TTL.BETWEEN_STATIONS,
+      fetchFn: async () => {
     const payload = {
       src: src.toUpperCase(),
       dst: dst.toUpperCase(),
@@ -772,7 +833,6 @@ export const searchTrainsBetweenStations = async (req, res) => {
       }
     });
 
-    const lang = getRequestLang(req);
     if (response.data && response.data.trainBtwnStnsList) {
       response.data.trainBtwnStnsList = response.data.trainBtwnStnsList.map((train) => {
         const trainNo = train.trainNo || train.trainNumber;
@@ -789,9 +849,11 @@ export const searchTrainsBetweenStations = async (req, res) => {
       });
     }
 
-    res.status(200).json({
+    return {
       success: true,
       data: response.data
+    };
+      },
     });
   } catch (error) {
     console.error("Search Trains Between Stations Error:", error.message);
@@ -841,6 +903,14 @@ export const getStationBoard = async (req, res) => {
     }
 
     const code = stationCode.trim().toUpperCase();
+    const lang = getRequestLang(req) || "en";
+    const timeBucket = timeQuery || Math.floor(Date.now() / 60000);
+    const boardKey = cacheKey("board", code, timeBucket, lang);
+
+    return respondWithCache(req, res, {
+      key: boardKey,
+      ttl: TTL.STATION_BOARD,
+      fetchFn: async () => {
     const stationSchedules = schedulesMap[code] || [];
 
     // Current time in minutes since midnight (Indian Standard Time)
@@ -982,7 +1052,6 @@ export const getStationBoard = async (req, res) => {
     departedRecently.sort((a, b) => a.timeSinceDeparture - b.timeSinceDeparture);
     nextTrains.sort((a, b) => a.timeToArrival - b.timeToArrival);
 
-    const lang = getRequestLang(req);
     const translateItem = (it) => enrichStationBoardItem(it, lang);
 
     arrivingSoon.forEach(translateItem);
@@ -994,7 +1063,7 @@ export const getStationBoard = async (req, res) => {
 
     const stationNames = getStationNamesByCode(code);
 
-    res.status(200).json({
+    return {
       success: true,
       stationCode: code,
       stationName: stationNames ? pickLocalizedName(stationNames, lang) : code,
@@ -1013,10 +1082,52 @@ export const getStationBoard = async (req, res) => {
         firstTomorrow,
         busyHours
       }
+    };
+      },
     });
 
   } catch (error) {
     console.error("Get Station Board Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const getStationCatalog = async (req, res) => {
+  try {
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(1000, Math.max(1, parseInt(req.query.limit, 10) || 500));
+    const key = cacheKey("station_catalog", page, limit);
+
+    return respondWithCache(req, res, {
+      key,
+      ttl: TTL.STATION_CATALOG,
+      fetchFn: async () => {
+        const all = localStations
+          .filter((s) => {
+            const code = s.properties?.code;
+            return code && !String(code).startsWith("XX") && s.properties?.name;
+          })
+          .map((s) => ({
+            code: s.properties.code.toUpperCase(),
+            name: s.properties.name,
+            state: s.properties.state || "",
+          }));
+
+        const start = (page - 1) * limit;
+        const stations = all.slice(start, start + limit);
+
+        return {
+          success: true,
+          stations,
+          page,
+          limit,
+          total: all.length,
+          totalPages: Math.ceil(all.length / limit),
+          version: 2,
+        };
+      },
+    });
+  } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -1162,25 +1273,35 @@ export const shareStationPage = async (req, res) => {
         Open directly in <strong>Safar Slot</strong> app or install from Google Play Store.
       </div>
       <a href="safarslot://station/${codeUpper}" id="open-btn" class="btn">Open in Safar Slot</a>
-      <a href="https://play.google.com/store/apps/details?id=com.omawchar.safarslot" class="btn btn-secondary">Install App</a>
+      <a href="https://play.google.com/store/apps/details?id=com.safarslot.safar_slot" class="btn btn-secondary">Install App</a>
     </div>
   </div>
   <div class="footer">Safar Slot · Indian Railways Assistant</div>
 
   <script>
-    const appUrl = "safarslot://station/${codeUpper}";
-    const storeUrl = "https://play.google.com/store/apps/details?id=com.omawchar.safarslot";
+    const isAndroid = /Android/i.test(navigator.userAgent);
+    const code = "${codeUpper}";
+    const storeUrl = "https://play.google.com/store/apps/details?id=com.safarslot.safar_slot";
+    
+    let appUrl = "safarslot://station/" + code;
+    if (isAndroid) {
+      appUrl = "intent://station/" + code + "#Intent;scheme=safarslot;package=com.safarslot.safar_slot;S.browser_fallback_url=" + encodeURIComponent(storeUrl) + ";end";
+    }
+    
+    // Set button href
+    document.getElementById("open-btn").href = appUrl;
     
     // Attempt redirect
     window.location.href = appUrl;
     
-    // Fallback to store if page still visible
-    setTimeout(function() {
-      if (document.webkitHidden || document.hidden) {
-        return; // App opened successfully
-      }
-      window.location.href = storeUrl;
-    }, 2500);
+    if (!isAndroid) {
+      setTimeout(function() {
+        if (document.webkitHidden || document.hidden) {
+          return;
+        }
+        window.location.href = storeUrl;
+      }, 2500);
+    }
   </script>
 </body>
 </html>
@@ -1329,23 +1450,35 @@ export const shareTrainPage = async (req, res) => {
         Open directly in <strong>Safar Slot</strong> app or install from Google Play Store.
       </div>
       <a href="safarslot://train/${trainNo}" id="open-btn" class="btn">Open in Safar Slot</a>
-      <a href="https://play.google.com/store/apps/details?id=com.omawchar.safarslot" class="btn btn-secondary">Install App</a>
+      <a href="https://play.google.com/store/apps/details?id=com.safarslot.safar_slot" class="btn btn-secondary">Install App</a>
     </div>
   </div>
   <div class="footer">Safar Slot · Indian Railways Assistant</div>
 
   <script>
-    const appUrl = "safarslot://train/${trainNo}";
-    const storeUrl = "https://play.google.com/store/apps/details?id=com.omawchar.safarslot";
+    const isAndroid = /Android/i.test(navigator.userAgent);
+    const trainNo = "${trainNo}";
+    const storeUrl = "https://play.google.com/store/apps/details?id=com.safarslot.safar_slot";
     
+    let appUrl = "safarslot://train/" + trainNo;
+    if (isAndroid) {
+      appUrl = "intent://train/" + trainNo + "#Intent;scheme=safarslot;package=com.safarslot.safar_slot;S.browser_fallback_url=" + encodeURIComponent(storeUrl) + ";end";
+    }
+    
+    // Set button href
+    document.getElementById("open-btn").href = appUrl;
+    
+    // Attempt redirect
     window.location.href = appUrl;
     
-    setTimeout(function() {
-      if (document.webkitHidden || document.hidden) {
-        return;
-      }
-      window.location.href = storeUrl;
-    }, 2500);
+    if (!isAndroid) {
+      setTimeout(function() {
+        if (document.webkitHidden || document.hidden) {
+          return;
+        }
+        window.location.href = storeUrl;
+      }, 2500);
+    }
   </script>
 </body>
 </html>
@@ -1493,23 +1626,35 @@ export const sharePnrPage = async (req, res) => {
         Open directly in <strong>Safar Slot</strong> app or install from Google Play Store.
       </div>
       <a href="safarslot://pnr/${pnrNo}" id="open-btn" class="btn">Open in Safar Slot</a>
-      <a href="https://play.google.com/store/apps/details?id=com.omawchar.safarslot" class="btn btn-secondary">Install App</a>
+      <a href="https://play.google.com/store/apps/details?id=com.safarslot.safar_slot" class="btn btn-secondary">Install App</a>
     </div>
   </div>
   <div class="footer">Safar Slot · Indian Railways Assistant</div>
 
   <script>
-    const appUrl = "safarslot://pnr/${pnrNo}";
-    const storeUrl = "https://play.google.com/store/apps/details?id=com.omawchar.safarslot";
+    const isAndroid = /Android/i.test(navigator.userAgent);
+    const pnrNo = "${pnrNo}";
+    const storeUrl = "https://play.google.com/store/apps/details?id=com.safarslot.safar_slot";
     
+    let appUrl = "safarslot://pnr/" + pnrNo;
+    if (isAndroid) {
+      appUrl = "intent://pnr/" + pnrNo + "#Intent;scheme=safarslot;package=com.safarslot.safar_slot;S.browser_fallback_url=" + encodeURIComponent(storeUrl) + ";end";
+    }
+    
+    // Set button href
+    document.getElementById("open-btn").href = appUrl;
+    
+    // Attempt redirect
     window.location.href = appUrl;
     
-    setTimeout(function() {
-      if (document.webkitHidden || document.hidden) {
-        return;
-      }
-      window.location.href = storeUrl;
-    }, 2500);
+    if (!isAndroid) {
+      setTimeout(function() {
+        if (document.webkitHidden || document.hidden) {
+          return;
+        }
+        window.location.href = storeUrl;
+      }, 2500);
+    }
   </script>
 </body>
 </html>
@@ -1657,23 +1802,35 @@ export const shareCoachPage = async (req, res) => {
         Open directly in <strong>Safar Slot</strong> app or install from Google Play Store.
       </div>
       <a href="safarslot://coach/${trainNo}" id="open-btn" class="btn">Open in Safar Slot</a>
-      <a href="https://play.google.com/store/apps/details?id=com.omawchar.safarslot" class="btn btn-secondary">Install App</a>
+      <a href="https://play.google.com/store/apps/details?id=com.safarslot.safar_slot" class="btn btn-secondary">Install App</a>
     </div>
   </div>
   <div class="footer">Safar Slot · Indian Railways Assistant</div>
 
   <script>
-    const appUrl = "safarslot://coach/${trainNo}";
-    const storeUrl = "https://play.google.com/store/apps/details?id=com.omawchar.safarslot";
+    const isAndroid = /Android/i.test(navigator.userAgent);
+    const trainNo = "${trainNo}";
+    const storeUrl = "https://play.google.com/store/apps/details?id=com.safarslot.safar_slot";
     
+    let appUrl = "safarslot://coach/" + trainNo;
+    if (isAndroid) {
+      appUrl = "intent://coach/" + trainNo + "#Intent;scheme=safarslot;package=com.safarslot.safar_slot;S.browser_fallback_url=" + encodeURIComponent(storeUrl) + ";end";
+    }
+    
+    // Set button href
+    document.getElementById("open-btn").href = appUrl;
+    
+    // Attempt redirect
     window.location.href = appUrl;
     
-    setTimeout(function() {
-      if (document.webkitHidden || document.hidden) {
-        return;
-      }
-      window.location.href = storeUrl;
-    }, 2500);
+    if (!isAndroid) {
+      setTimeout(function() {
+        if (document.webkitHidden || document.hidden) {
+          return;
+        }
+        window.location.href = storeUrl;
+      }, 2500);
+    }
   </script>
 </body>
 </html>

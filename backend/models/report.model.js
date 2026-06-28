@@ -34,4 +34,8 @@ const reportSchema = new mongoose.Schema({
   }
 }, { timestamps: true });
 
+reportSchema.index({ trainNo: 1 });
+reportSchema.index({ userId: 1 });
+reportSchema.index({ createdAt: -1 });
+
 export const TrainReport = mongoose.model('TrainReport', reportSchema);

@@ -1,4 +1,5 @@
 import User from "../models/user.model.js";
+import { sendJsonWithETag, TTL } from "../utils/cache.js";
 import Otp from "../models/otp.model.js";
 import Station from "../models/station.model.js";
 import { schedulesMap } from "./train.controller.js";
@@ -335,10 +336,10 @@ export const userProfile = async (req,res)=>{
           isPremium:user.isPremium
         }
 
-        res.status(200).json({
-          success:true,
+        return sendJsonWithETag(req, res, {
+          success: true,
           userProfileDetils,
-        })
+        }, TTL.PROFILE);
 
      }catch(err){
     console.log(err);

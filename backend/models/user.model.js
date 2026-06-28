@@ -126,6 +126,12 @@ const userSchema = new mongoose.Schema(
   }
 );
 
+userSchema.index({ email: 1 });
+userSchema.index({ googleId: 1 }, { sparse: true });
+userSchema.index({ "recentTrainSearches.searchedAt": -1 });
+userSchema.index({ "recentStationSearches.searchedAt": -1 });
+userSchema.index({ "recentLiveTrains.searchedAt": -1 });
+
 const User = mongoose.model("User", userSchema);
 
 export default User;
