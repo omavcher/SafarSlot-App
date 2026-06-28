@@ -775,8 +775,9 @@ export const searchTrainsBetweenStations = async (req, res) => {
     const lang = getRequestLang(req);
     if (response.data && response.data.trainBtwnStnsList) {
       response.data.trainBtwnStnsList = response.data.trainBtwnStnsList.map((train) => {
-        if (train.trainNo != null) {
-          applyTrainNames(train, train.trainNo, ["trainName"], lang);
+        const trainNo = train.trainNo || train.trainNumber;
+        if (trainNo != null) {
+          applyTrainNames(train, trainNo, ["trainName"], lang);
         }
         if (train.fromStnCode) {
           applyStationNames(train, train.fromStnCode, ["fromStnName"], lang);
