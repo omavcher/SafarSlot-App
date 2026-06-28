@@ -1036,7 +1036,7 @@ export const shareStationPage = async (req, res) => {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Safar Slot - \${name} (\${codeUpper})</title>
+  <title>Safar Slot - ${name} (${codeUpper})</title>
   <style>
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -1151,23 +1151,23 @@ export const shareStationPage = async (req, res) => {
   <div class="card">
     <div class="header">
       <div class="app-logo">SS</div>
-      <div class="station-name">\${name}</div>
-      <div class="station-code">\${codeUpper}</div>
+      <div class="station-name">${name}</div>
+      <div class="station-code">${codeUpper}</div>
     </div>
     <div class="content">
       <div class="info">
-        Explore live train status, platforms, timetables, and available facilities for <strong>\${name} (\${codeUpper})</strong>.
+        Explore live train status, platforms, timetables, and available facilities for <strong>${name} (${codeUpper})</strong>.
         <br><br>
         Open directly in <strong>Safar Slot</strong> app or install from Google Play Store.
       </div>
-      <a href="safarslot://station/\${codeUpper}" id="open-btn" class="btn">Open in Safar Slot</a>
+      <a href="safarslot://station/${codeUpper}" id="open-btn" class="btn">Open in Safar Slot</a>
       <a href="https://play.google.com/store/apps/details?id=com.omawchar.safarslot" class="btn btn-secondary">Install App</a>
     </div>
   </div>
   <div class="footer">Safar Slot · Indian Railways Assistant</div>
 
   <script>
-    const appUrl = "safarslot://station/\${codeUpper}";
+    const appUrl = "safarslot://station/${codeUpper}";
     const storeUrl = "https://play.google.com/store/apps/details?id=com.omawchar.safarslot";
     
     // Attempt redirect
@@ -1203,7 +1203,7 @@ export const shareTrainPage = async (req, res) => {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Safar Slot - Live Train Status - \${trainNo}</title>
+  <title>Safar Slot - Live Train Status - ${trainNo}</title>
   <style>
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -1319,22 +1319,22 @@ export const shareTrainPage = async (req, res) => {
     <div class="header">
       <div class="app-logo">SS</div>
       <div class="station-name">Live Train Status</div>
-      <div class="station-code">Train \${trainNo}</div>
+      <div class="station-code">Train ${trainNo}</div>
     </div>
     <div class="content">
       <div class="info">
-        Track train <strong>\${trainNo}</strong> live, view delay status, schedules, and platform locations.
+        Track train <strong>${trainNo}</strong> live, view delay status, schedules, and platform locations.
         <br><br>
         Open directly in <strong>Safar Slot</strong> app or install from Google Play Store.
       </div>
-      <a href="safarslot://train/\${trainNo}" id="open-btn" class="btn">Open in Safar Slot</a>
+      <a href="safarslot://train/${trainNo}" id="open-btn" class="btn">Open in Safar Slot</a>
       <a href="https://play.google.com/store/apps/details?id=com.omawchar.safarslot" class="btn btn-secondary">Install App</a>
     </div>
   </div>
   <div class="footer">Safar Slot · Indian Railways Assistant</div>
 
   <script>
-    const appUrl = "safarslot://train/\${trainNo}";
+    const appUrl = "safarslot://train/${trainNo}";
     const storeUrl = "https://play.google.com/store/apps/details?id=com.omawchar.safarslot";
     
     window.location.href = appUrl;
@@ -1367,7 +1367,7 @@ export const sharePnrPage = async (req, res) => {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Safar Slot - PNR Status - \${pnrNo}</title>
+  <title>Safar Slot - PNR Status - ${pnrNo}</title>
   <style>
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -1483,22 +1483,22 @@ export const sharePnrPage = async (req, res) => {
     <div class="header">
       <div class="app-logo">SS</div>
       <div class="station-name">PNR Status Details</div>
-      <div class="station-code">PNR \${pnrNo}</div>
+      <div class="station-code">PNR ${pnrNo}</div>
     </div>
     <div class="content">
       <div class="info">
-        Check booking status, coach layout, and seat status for PNR <strong>\${pnrNo}</strong>.
+        Check booking status, coach layout, and seat status for PNR <strong>${pnrNo}</strong>.
         <br><br>
         Open directly in <strong>Safar Slot</strong> app or install from Google Play Store.
       </div>
-      <a href="safarslot://pnr/\${pnrNo}" id="open-btn" class="btn">Open in Safar Slot</a>
+      <a href="safarslot://pnr/${pnrNo}" id="open-btn" class="btn">Open in Safar Slot</a>
       <a href="https://play.google.com/store/apps/details?id=com.omawchar.safarslot" class="btn btn-secondary">Install App</a>
     </div>
   </div>
   <div class="footer">Safar Slot · Indian Railways Assistant</div>
 
   <script>
-    const appUrl = "safarslot://pnr/\${pnrNo}";
+    const appUrl = "safarslot://pnr/${pnrNo}";
     const storeUrl = "https://play.google.com/store/apps/details?id=com.omawchar.safarslot";
     
     window.location.href = appUrl;
@@ -1531,7 +1531,7 @@ export const shareCoachPage = async (req, res) => {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Safar Slot - Coach Position - \${trainNo}</title>
+  <title>Safar Slot - Coach Position - ${trainNo}</title>
   <style>
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -1647,22 +1647,22 @@ export const shareCoachPage = async (req, res) => {
     <div class="header">
       <div class="app-logo">SS</div>
       <div class="station-name">Coach Position Details</div>
-      <div class="station-code">Train \${trainNo}</div>
+      <div class="station-code">Train ${trainNo}</div>
     </div>
     <div class="content">
       <div class="info">
-        View coach layouts, seat classifications, and layout diagrams for train <strong>\${trainNo}</strong>.
+        View coach layouts, seat classifications, and layout diagrams for train <strong>${trainNo}</strong>.
         <br><br>
         Open directly in <strong>Safar Slot</strong> app or install from Google Play Store.
       </div>
-      <a href="safarslot://coach/\${trainNo}" id="open-btn" class="btn">Open in Safar Slot</a>
+      <a href="safarslot://coach/${trainNo}" id="open-btn" class="btn">Open in Safar Slot</a>
       <a href="https://play.google.com/store/apps/details?id=com.omawchar.safarslot" class="btn btn-secondary">Install App</a>
     </div>
   </div>
   <div class="footer">Safar Slot · Indian Railways Assistant</div>
 
   <script>
-    const appUrl = "safarslot://coach/\${trainNo}";
+    const appUrl = "safarslot://coach/${trainNo}";
     const storeUrl = "https://play.google.com/store/apps/details?id=com.omawchar.safarslot";
     
     window.location.href = appUrl;

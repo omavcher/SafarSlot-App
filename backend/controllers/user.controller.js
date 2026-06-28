@@ -751,36 +751,45 @@ export const saveRecentTrainSearch = async (req, res) => {
       return res.status(400).json({ success: false, message: "Missing required fields" });
     }
 
-    const user = await User.findById(userId);
-    if (!user) {
+    // Pull duplicates atomically (prevents concurrent VersionError)
+    await User.updateOne(
+      { _id: userId },
+      {
+        $pull: {
+          recentTrainSearches: { fromCode, toCode }
+        }
+      }
+    );
+
+    // Prepend new search and slice to 20 elements atomically
+    await User.updateOne(
+      { _id: userId },
+      {
+        $push: {
+          recentTrainSearches: {
+            $each: [{
+              fromCode,
+              fromName,
+              toCode,
+              toName,
+              date: date || "",
+              travelClass: travelClass || "All Classes",
+              searchedAt: new Date()
+            }],
+            $position: 0,
+            $slice: 20
+          }
+        }
+      }
+    );
+
+    // Fetch the updated document safely
+    const updatedUser = await User.findById(userId);
+    if (!updatedUser) {
       return res.status(404).json({ success: false, message: "User not found" });
     }
 
-    if (!user.recentTrainSearches) {
-      user.recentTrainSearches = [];
-    }
-
-    // De-duplicate: remove older search for the exact same from -> to route
-    user.recentTrainSearches = user.recentTrainSearches.filter(
-      s => !(s.fromCode === fromCode && s.toCode === toCode)
-    );
-
-    user.recentTrainSearches.unshift({
-      fromCode,
-      fromName,
-      toCode,
-      toName,
-      date: date || "",
-      travelClass: travelClass || "All Classes",
-      searchedAt: new Date()
-    });
-
-    if (user.recentTrainSearches.length > 20) {
-      user.recentTrainSearches = user.recentTrainSearches.slice(0, 20);
-    }
-
-    await user.save();
-    return res.status(200).json({ success: true, message: "Saved to recent searches", data: user.recentTrainSearches });
+    return res.status(200).json({ success: true, message: "Saved to recent searches", data: updatedUser.recentTrainSearches });
   } catch (error) {
     console.log("Save Recent Train Search Error", error);
     return res.status(500).json({ success: false, message: "Internal Server Error" });
@@ -829,32 +838,41 @@ export const saveRecentStationSearch = async (req, res) => {
       return res.status(400).json({ success: false, message: "Missing stationCode or stationName" });
     }
 
-    const user = await User.findById(userId);
-    if (!user) {
+    // Pull duplicates atomically (prevents concurrent VersionError)
+    await User.updateOne(
+      { _id: userId },
+      {
+        $pull: {
+          recentStationSearches: { stationCode }
+        }
+      }
+    );
+
+    // Prepend new search and slice to 20 elements atomically
+    await User.updateOne(
+      { _id: userId },
+      {
+        $push: {
+          recentStationSearches: {
+            $each: [{
+              stationCode,
+              stationName,
+              searchedAt: new Date()
+            }],
+            $position: 0,
+            $slice: 20
+          }
+        }
+      }
+    );
+
+    // Fetch the updated document safely
+    const updatedUser = await User.findById(userId);
+    if (!updatedUser) {
       return res.status(404).json({ success: false, message: "User not found" });
     }
 
-    if (!user.recentStationSearches) {
-      user.recentStationSearches = [];
-    }
-
-    // De-duplicate
-    user.recentStationSearches = user.recentStationSearches.filter(
-      s => s.stationCode !== stationCode
-    );
-
-    user.recentStationSearches.unshift({
-      stationCode,
-      stationName,
-      searchedAt: new Date()
-    });
-
-    if (user.recentStationSearches.length > 20) {
-      user.recentStationSearches = user.recentStationSearches.slice(0, 20);
-    }
-
-    await user.save();
-    return res.status(200).json({ success: true, message: "Saved recent station search", data: user.recentStationSearches });
+    return res.status(200).json({ success: true, message: "Saved recent station search", data: updatedUser.recentStationSearches });
   } catch (error) {
     console.log("Save Recent Station Search Error", error);
     return res.status(500).json({ success: false, message: "Internal Server Error" });
