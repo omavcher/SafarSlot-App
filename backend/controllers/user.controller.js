@@ -502,7 +502,15 @@ export const getRecentLiveTrains = async (req, res) => {
       return res.status(404).json({ success: false, message: "User not found" });
     }
 
-    const recent = user.recentLiveTrains || [];
+    const lang = req.query.lang || (req.body && req.body.lang) || req.headers['accept-language'];
+    const recent = (user.recentLiveTrains || []).map(t => {
+      const item = t.toObject ? t.toObject() : t;
+      if (item.trainNo) {
+        applyTrainNames(item, item.trainNo, ["trainName"], lang);
+      }
+      return item;
+    });
+
     return res.status(200).json({ success: true, data: recent });
   } catch (error) {
     console.log("Get Recent Live Trains Error", error);
